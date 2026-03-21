@@ -7,6 +7,14 @@ Type=simple
 User=shane
 SyslogIdentifier=matrix-premid
 Environment=PYTHONUNBUFFERED=1
+
+# --- Configuration (Update these or load from an EnvironmentFile) ---
+Environment="HOMESERVER=https://matrix.org"
+Environment="USERNAME=@user:matrix.org"
+Environment="ACCESS_TOKEN=your_access_token_here"
+Environment="DEVICE_ID=your_device_id_here"
+# --------------------------------------------------------------------
+
 ExecStart=/usr/local/bin/matrix_premid
 Restart=on-failure
 RestartSec=120

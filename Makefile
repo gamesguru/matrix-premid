@@ -34,6 +34,7 @@ run: deps ##H Run the application
 format: ##H Format the code using Black
 	$(VENV)/bin/black matrix_premid.py
 	$(VENV)/bin/isort matrix_premid.py
+	-prettier -w .
 	-pre-commit run --all-files
 
 .PHONY: lint

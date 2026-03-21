@@ -29,9 +29,12 @@ async def monitor_mpris():
             stderr=asyncio.subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        print("ERROR: 'playerctl' is not installed or not in PATH.", file=sys.stderr)
         print(
-            "Please install it using your package manager (e.g. pacman -S playerctl)",
+            "ERROR: 'playerctl' is not installed or not in PATH.",
+            file=sys.stderr,
+        )
+        print(
+            "Please install via your package manager (pacman -S playerctl)",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -100,11 +103,14 @@ async def main():
 
                     # 2. Update Element's custom status
                     if current_activity == "Idle":
-                        # Clear the custom status text if nothing is playing
-                        await client.set_account_data("im.vector.user_status", {})
+                        # Clear custom status text if nothing is playing
+                        await client.set_account_data(
+                            "im.vector.user_status", {}
+                        )  # noqa: E501
                     else:
                         await client.set_account_data(
-                            "im.vector.user_status", {"status": current_activity}
+                            "im.vector.user_status",
+                            {"status": current_activity},
                         )
 
                     last_activity = current_activity
