@@ -7,6 +7,7 @@ native Linux MPRIS (playerctl) events.
 """
 
 import asyncio
+import fcntl
 import logging
 import os
 import sys
@@ -17,6 +18,23 @@ from nio.responses import EmptyResponse, PresenceSetResponse
 
 # Load environment variables from .env if present
 load_dotenv()
+
+# Lock file to prevent multiple instances
+LOCK_FILE = "/tmp/matrix-premid.lock"
+
+
+def acquire_lock():
+    """Ensure only one instance runs. Returns the file descriptor."""
+    try:
+        # We need to keep the file open for the duration of the process
+        # pylint: disable=consider-using-with
+        lock_fd = open(LOCK_FILE, "w", encoding="utf-8")
+        fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock_fd
+    except OSError:
+        print("ERROR: Another instance is already running.", file=sys.stderr)
+        sys.exit(1)
+
 
 # Suppress noisy matrix-nio validation errors
 logging.getLogger("nio").setLevel(logging.CRITICAL)
@@ -58,9 +76,11 @@ class MatrixStatusUpdater:
 
             if is_new:
                 print(f"Matrix Status -> {activity}", flush=True)
+                # Update state immediately to prevent race conditions from debouncing
+                self.last_activity = activity
 
             try:
-                # 1. Update standard presence
+                # 1. Update standard presence (explicit online + text)
                 await self.client.set_presence(presence="online", status_msg=activity)
 
                 path = ["presence", self.client.user_id, "status"]
@@ -69,6 +89,7 @@ class MatrixStatusUpdater:
                     path, {"access_token": self.client.access_token}
                 )
 
+                # Send custom PUT to ensure currently_active is True
                 await self.client._send(
                     PresenceSetResponse,
                     "PUT",
@@ -98,7 +119,6 @@ class MatrixStatusUpdater:
                     EmptyResponse, "PUT", full_path, data=Api.to_json(content)
                 )
 
-                self.last_activity = activity
             except (asyncio.TimeoutError, OSError) as e:
                 print(f"ERROR: Matrix update failed: {e}", file=sys.stderr)
 
@@ -116,28 +136,40 @@ def parse_mpris_data(data: str) -> str:
     if status != "Playing":
         return "Idle"
 
-    # 'YouTube Music' as an artist is usually a placeholder before metadata loads
+    # Detect if this is YouTube Music metadata
+    is_ytm = "YouTube Music" in data
+
+    # If title is just the service name, we are effectively idle/loading
+    if title == "YouTube Music" and not artist:
+        return "Idle (YouTube Music)"
+
+    # Filter out generic 'YouTube Music' artist placeholder
     clean_artist = "" if artist == "YouTube Music" else artist
 
     if clean_artist:
-        return f"Listening to: {title} - {clean_artist}"
+        activity = f"Listening to: {title} - {clean_artist}"
+    else:
+        activity = f"Watching: {title}"
 
-    return f"Watching: {title}"
+    # Append ideal footer
+    if is_ytm and "YT Music" not in activity:
+        activity += " | YT Music"
+
+    return activity
 
 
 async def monitor_mpris(updater: MatrixStatusUpdater):
     """Monitor MPRIS events via playerctl."""
     debounce_task = None
-    pending_activity = ""
+    # Use a container for pending_activity to allow modification in nested scope
+    state = {"pending": ""}
 
     async def do_debounced_update(activity):
-        nonlocal pending_activity
-        # Wait longer for 'Watching' as it's almost always followed by 'Listening'
-        delay = 1.5 if activity.startswith("Watching:") else 0.2
+        # Wait for potential better metadata
+        delay = 1.2 if activity.startswith("Watching:") else 0.3
         await asyncio.sleep(delay)
 
-        # If a better update arrived while we were waiting, skip this one
-        if activity.startswith("Watching:") and pending_activity.startswith(
+        if activity.startswith("Watching:") and state["pending"].startswith(
             "Listening:"
         ):
             return
@@ -146,12 +178,12 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
 
     while True:
         try:
-            # Follow mode (usually emits current state on start anyway)
+            # Follow mode
             process = await asyncio.create_subprocess_exec(
                 "playerctl",
                 "metadata",
                 "--format",
-                "{{status}}|{{title}}|{{artist}}",
+                "{{status}}|{{title}}|{{artist}}|{{playerName}}",
                 "--follow",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
@@ -164,7 +196,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                 raw = line.decode("utf-8").strip()
                 if raw:
                     activity = parse_mpris_data(raw)
-                    pending_activity = activity
+                    state["pending"] = activity
                     if debounce_task:
                         debounce_task.cancel()
                     debounce_task = asyncio.create_task(do_debounced_update(activity))
@@ -181,6 +213,8 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
 
 async def main():
     """Start the Matrix updater."""
+    # We must keep the lock_fd in scope to prevent the lock from being released
+    lock_fd = acquire_lock()  # pylint: disable=unused-variable # noqa: F841
     if not all([HOMESERVER, USERNAME, ACCESS_TOKEN]):
         print("ERROR: Missing configuration in .env", file=sys.stderr)
         sys.exit(1)
@@ -203,7 +237,6 @@ async def main():
                 await asyncio.sleep(5)
 
     try:
-        # Simple port fallback logic removed since web server is gone
         print("Listening for MPRIS events...", flush=True)
         await asyncio.gather(
             monitor_mpris(updater),
