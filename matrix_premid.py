@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import asyncio
-import json
 import os
 import sys
 
@@ -151,7 +150,6 @@ async def main():
 
     manager = MatrixStatusManager(HOMESERVER, USERNAME, ACCESS_TOKEN, DEVICE_ID)
     print(f"Matrix User: {USERNAME} on {HOMESERVER}")
-    print(f"Listening for MPRIS events and web updates on port {PORT}...")
 
     # Set up web server
     app = web.Application()
@@ -160,20 +158,30 @@ async def main():
     runner = web.AppRunner(app)
     await runner.setup()
 
-    try:
-        site = web.TCPSite(runner, "localhost", PORT)
-        await site.start()
-    except OSError as e:
-        if e.errno == 98:
-            print(
-                f"ERROR: Port {PORT} is already in use. Is another instance running?",
-                file=sys.stderr,
-            )
-            await manager.close()
-            await runner.cleanup()
-            sys.exit(1)
-        else:
-            raise
+    # Try multiple ports if default is taken
+    ports_to_try = [PORT] + list(range(8081, 8090))
+    site = None
+    actual_port = None
+
+    for port in ports_to_try:
+        try:
+            site = web.TCPSite(runner, "localhost", port)
+            await site.start()
+            actual_port = port
+            break
+        except OSError as e:
+            if e.errno == 98:
+                continue
+            else:
+                raise
+
+    if not actual_port:
+        print("ERROR: Could not find an available port to bind to.", file=sys.stderr)
+        await manager.close()
+        await runner.cleanup()
+        sys.exit(1)
+
+    print(f"Listening for MPRIS events and web updates on port {actual_port}...")
 
     try:
         # Run MPRIS monitor
