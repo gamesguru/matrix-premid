@@ -19,10 +19,8 @@ deps: $(VENV)/bin/activate ##H Install standard and dev dependencies
 
 .PHONY: install
 install: deps ##H Install dependencies and systemd service (requires sudo)
-	sed -e "s|WorkingDirectory=.*|WorkingDirectory=$(shell pwd)|" \
-	    -e "s|EnvironmentFile=-.*|EnvironmentFile=-$(shell pwd)/.env|" \
-	    -e "s|ExecStart=.*|ExecStart=$(shell pwd)/$(VENV)/bin/python $(shell pwd)/matrix_premid.py|" \
-	    etc/matrix-premid.service > .tmp_service
+	sed -e "s|{{WORKING_DIR}}|$(shell pwd)|g" \
+	    etc/matrix-premid.service.template > .tmp_service
 	sudo cp .tmp_service /etc/systemd/system/matrix-premid.service
 	rm .tmp_service
 	sudo systemctl daemon-reload

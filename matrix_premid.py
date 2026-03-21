@@ -43,15 +43,12 @@ class MatrixStatusManager:
 
             print(f"Matrix Status -> {activity}")
 
-            # 1. Update standard presence
-            resp = await self.client.set_presence(
-                presence="online", status_msg=activity
+            # 1. Update standard presence (with currently_active=True)
+            resp = await self.set_presence_custom(
+                presence="online", status_msg=activity, currently_active=True
             )
             if isinstance(resp, ErrorResponse):
                 print(f"ERROR: set_presence failed: {resp.message}", file=sys.stderr)
-            else:
-                # print("DEBUG: Presence updated successfully")
-                pass
 
             # 2. Update Element's custom status (im.vector.user_status)
             content = {"status": activity} if activity != "Idle" else {}
@@ -60,11 +57,28 @@ class MatrixStatusManager:
                 print(
                     f"ERROR: account_data_set failed: {resp.message}", file=sys.stderr
                 )
-            else:
-                # print("DEBUG: Element status updated successfully")
-                pass
 
             self.last_activity = activity
+
+    async def set_presence_custom(
+        self, presence, status_msg=None, currently_active=True
+    ):
+        """Custom presence update that supports currently_active flag."""
+        path = ["presence", self.client.user_id, "status"]
+        query_parameters = {"access_token": self.client.access_token}
+        full_path = Api._build_path(path, query_parameters)
+
+        content = {"presence": presence}
+        if status_msg:
+            content["status_msg"] = status_msg
+        if currently_active:
+            content["currently_active"] = True
+
+        from nio.responses import PresenceSetResponse
+
+        return await self.client._send(
+            PresenceSetResponse, "PUT", full_path, data=Api.to_json(content)
+        )
 
     async def account_data_set(self, event_type, content):
         """Set global account data for the user."""

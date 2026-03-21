@@ -1,0 +1,21 @@
+[Unit]
+Description=Matrix Presence Updater
+After=network.target
+
+[Service]
+Type=simple
+User=%u
+SyslogIdentifier=matrix-premid
+WorkingDirectory={{WORKING_DIR}}
+Environment=PYTHONUNBUFFERED=1
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+
+# Load environment variables if they exist
+EnvironmentFile=-{{WORKING_DIR}}/.env
+
+ExecStart={{WORKING_DIR}}/.venv/bin/python {{WORKING_DIR}}/matrix_premid.py
+Restart=on-failure
+RestartSec=120
+
+[Install]
+WantedBy=multi-user.target
