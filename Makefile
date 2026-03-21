@@ -18,16 +18,15 @@ deps: $(VENV)/bin/activate ##H Install standard and dev dependencies
 	$(PIP) install -r requirements-dev.txt
 
 .PHONY: install
-install: deps ##H Install dependencies, env, and systemd service (requires sudo)
+install: deps ##H Install dependencies, env, binary, and systemd service (requires sudo)
 	sudo cp .env /etc/matrix-premid.env
 	sudo chmod 600 /etc/matrix-premid.env
-	sed -e "s|{{WORKING_DIR}}|$(shell pwd)|g" \
-	    etc/matrix-premid.service.template > .tmp_service
-	sudo cp .tmp_service /etc/systemd/system/matrix-premid.service
-	rm .tmp_service
+	sudo cp matrix_premid.py /usr/local/bin/matrix_premid
+	sudo chmod +x /usr/local/bin/matrix_premid
+	sudo cp etc/matrix-premid.service /etc/systemd/system/matrix-premid.service
 	sudo systemctl daemon-reload
 	sudo systemctl enable matrix-premid.service
-	@echo "Service installed. Run 'sudo systemctl start matrix-premid.service' to start it."
+	@echo "Installed to /usr/local/bin/matrix_premid and service created."
 
 .PHONY: run
 run: deps ##H Run the application

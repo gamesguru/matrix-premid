@@ -43,13 +43,13 @@ class MatrixStatusUpdater:
         """Close the Matrix client session."""
         await self.client.close()
 
-    async def update(self, activity: str):
+    async def update(self, activity: str, force: bool = False):
         """Update both standard presence and Element custom status."""
         if not activity:
             activity = "Idle"
 
         async with self.lock:
-            if activity == self.last_activity:
+            if not force and activity == self.last_activity:
                 return
 
             print(f"Matrix Status -> {activity}", flush=True)
@@ -93,7 +93,7 @@ class MatrixStatusUpdater:
 
                 self.last_activity = activity
                 print(f"✓ Status set: {activity}", flush=True)
-            except Exception as e:
+            except (asyncio.TimeoutError, OSError) as e:
                 print(f"ERROR: Matrix update failed: {e}", file=sys.stderr)
 
 
@@ -112,15 +112,24 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
             )
             out, _ = await proc.communicate()
             if out:
-                parts = out.decode().strip().split("|", 2)
-                if len(parts) == 3:
-                    status, title, artist = parts
+                data = out.decode("utf-8").strip()
+                print(f"DEBUG: Initial fetch: {data}", flush=True)
+                parts = data.split("|")
+                if parts:
+                    status = parts[0]
+                    title = parts[1] if len(parts) > 1 else "Unknown Title"
+                    artist = parts[2] if len(parts) > 2 else ""
+
                     if status == "Playing":
-                        activity = (
-                            f"Listening to: {title} - {artist}"
-                            if artist
-                            else f"Watching: {title}"
-                        )
+                        if title == "YouTube Music":
+                            # This happens when the browser hasn't loaded metadata yet
+                            activity = "Idle (YouTube Music)"
+                        else:
+                            activity = (
+                                f"Listening to: {title} - {artist}"
+                                if artist
+                                else f"Watching: {title}"
+                            )
                         await updater.update(activity)
                     else:
                         await updater.update("Idle")
@@ -145,20 +154,27 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                 if not data:
                     continue
 
-                parts = data.split("|", 2)
-                if len(parts) == 3:
-                    status, title, artist = parts
-                    activity = "Idle"
-                    if status == "Playing":
+                parts = data.split("|")
+                if not parts or not parts[0]:
+                    continue
+
+                status = parts[0]
+                title = parts[1] if len(parts) > 1 else "Unknown Title"
+                artist = parts[2] if len(parts) > 2 else ""
+
+                activity = "Idle"
+                if status == "Playing":
+                    if title == "YouTube Music":
+                        activity = "Idle (YouTube Music)"
+                    else:
                         activity = (
                             f"Listening to: {title} - {artist}"
                             if artist
                             else f"Watching: {title}"
                         )
-                    await updater.update(activity)
+                await updater.update(activity)
 
-        # pylint: disable=broad-exception-caught
-        except Exception as e:
+        except (asyncio.SubprocessError, OSError, ValueError) as e:
             print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
 
         await asyncio.sleep(5)
@@ -173,8 +189,7 @@ async def handle_web_update(request):
             updater = request.app["updater"]
             await updater.update(activity)
             return web.Response(text="OK")
-    # pylint: disable=broad-exception-caught
-    except Exception:
+    except (web.HTTPException, ValueError):
         pass
     return web.Response(text="Error", status=400)
 
@@ -212,9 +227,17 @@ async def main():
 
     print(f"Listening on port {bound_port} and MPRIS...", flush=True)
 
+    async def keep_alive():
+        """Periodically refresh presence to keep currently_active=True."""
+        while True:
+            if updater.last_activity:
+                await updater.update(updater.last_activity, force=True)
+            await asyncio.sleep(30)
+
     try:
         await asyncio.gather(
             monitor_mpris(updater),
+            keep_alive(),
             asyncio.Event().wait(),  # Keep the web server running
         )
     except asyncio.CancelledError:

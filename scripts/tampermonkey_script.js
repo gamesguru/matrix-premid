@@ -23,14 +23,10 @@
 
     // Parse title based on the current site
     if (host === "music.youtube.com") {
-      // Cleans notification badges like "(3)" and the site name
-      activity =
-        "Listening to: " +
-        title.replace(/^\(\d+\)\s*/, "").replace(" - YouTube Music", "");
+      // Cleans notification badges like "(3)"
+      activity = "Listening to: " + title.replace(/^\(\d+\)\s*/, "");
     } else if (host.includes("youtube.com")) {
-      activity =
-        "Watching: " +
-        title.replace(/^\(\d+\)\s*/, "").replace(" - YouTube", "");
+      activity = "Watching: " + title.replace(/^\(\d+\)\s*/, "");
     } else if (host.includes("github.com")) {
       activity =
         "On GitHub: " + title.replace(" · GitHub", "").replace("GitHub - ", "");

@@ -6,15 +6,14 @@ After=network.target
 Type=simple
 User=shane
 SyslogIdentifier=matrix-premid
-# Use relative paths where possible or let the user define them
 WorkingDirectory=/run/media/shane/shane4tb-ent/repos/matrix-premid
 Environment=PYTHONUNBUFFERED=1
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 
-# Load environment variables if they exist in the working directory
-EnvironmentFile=-/run/media/shane/shane4tb-ent/repos/matrix-premid/.env
+# Load environment variables
+EnvironmentFile=/etc/matrix-premid.env
 
-ExecStart=/run/media/shane/shane4tb-ent/repos/matrix-premid/.venv/bin/python /run/media/shane/shane4tb-ent/repos/matrix-premid/matrix_premid.py
+ExecStart=/run/media/shane/shane4tb-ent/repos/matrix-premid/.venv/bin/python /usr/local/bin/matrix_premid
 Restart=on-failure
 RestartSec=120
 
