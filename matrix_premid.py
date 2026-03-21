@@ -5,7 +5,7 @@ import sys
 
 from nio import AsyncClient
 from nio.api import Api
-from nio.responses import Response
+from nio.responses import EmptyResponse
 
 # --- CONFIGURATION ---
 HOMESERVER = os.environ.get("HOMESERVER", "")
@@ -26,9 +26,11 @@ async def account_data_set(client, event_type, content):
     full_path = Api._build_path(path, query_parameters)
 
     # _send is a private method but it's the only way to send custom PUT
+    # Using EmptyResponse because the server returns an empty JSON object {}
+    # and EmptyResponse has the required from_dict method.
     return await client._send(
-        Response, "PUT", full_path, data=Api.to_json(content)
-    )  # noqa: E501
+        EmptyResponse, "PUT", full_path, data=Api.to_json(content)
+    )
 
 
 async def monitor_mpris():
@@ -122,9 +124,7 @@ async def main():
                     # 2. Update Element's custom status
                     if current_activity == "Idle":
                         # Clear custom status text if nothing is playing
-                        await account_data_set(
-                            client, "im.vector.user_status", {}
-                        )  # noqa: E501
+                        await account_data_set(client, "im.vector.user_status", {})
                     else:
                         await account_data_set(
                             client,
