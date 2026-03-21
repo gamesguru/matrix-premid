@@ -1,11 +1,13 @@
 Matrix PreMiD
 =============
 
-A Python script that sets your Matrix presence and status based on a local web server receiving updates. This is particularly useful for integrating with external presence monitors like PreMiD.
+A Python script that sets your Matrix presence and status based on native OS-level media sessions (MPRIS). It monitors what you are listening to or watching via D-Bus and instantly pushes it to your Matrix account.
 
 Requirements
 ------------
 
+* Linux OS with D-Bus and MPRIS support
+* `playerctl` installed (e.g. ``sudo apt install playerctl`` or ``sudo pacman -S playerctl``)
 * Python 3.7+
 * A Matrix account and homeserver
 * The required Python packages (see ``requirements.txt``)
@@ -51,15 +53,7 @@ Execute the script using the Makefile:
 
    make run
 
-The script will start a local web server on port ``8080``. It will listen for POST requests at ``http://localhost:8080/update`` with a JSON payload like:
-
-.. code-block:: json
-
-   {
-       "activity": "Listening to Spotify"
-   }
-
-When an update is received, the script updates your standard Matrix presence and your custom Element status.
+The script will listen to Linux MPRIS events natively. As long as the script is running, when you play media in a browser or application (like Spotify, VLC, Firefox), your standard Matrix presence and your custom Element status will be instantly updated. When media is stopped or paused, the status will return to Idle and clear the custom text.
 
 Development
 -----------

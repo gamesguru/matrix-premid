@@ -2,7 +2,6 @@
 import asyncio
 import os
 
-from aiohttp import web
 from dotenv import load_dotenv
 from nio import AsyncClient
 
@@ -16,68 +15,84 @@ DEVICE_ID = os.environ.get("DEVICE_ID", "")
 # ---------------------
 
 
-client = AsyncClient(HOMESERVER, USERNAME)
-client.access_token = ACCESS_TOKEN
-client.device_id = DEVICE_ID
-client.user_id = USERNAME
+async def monitor_mpris():
+    """
+    Hooks into the D-Bus MPRIS interface via playerctl.
+    Yields the formatted activity string instantly when media state changes.
+    """
+    process = await asyncio.create_subprocess_exec(
+        "playerctl",
+        "metadata",
+        "--format",
+        "{{status}}|{{title}}|{{artist}}",
+        "--follow",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
 
+    while True:
+        line = await process.stdout.readline()
+        if not line:
+            break
 
-async def handle_update(request):
-    """Main handler."""
+        data = line.decode("utf-8").strip()
+        if not data:
+            continue
 
-    last_activity = ""
+        try:
+            status, title, artist = data.split("|", 2)
+        except ValueError:
+            continue
 
-    try:
-        data = await request.json()
-        current_activity = data.get("activity", "Idle")
-
-        if current_activity != last_activity:
-            print(f"Attempting to set Matrix Status -> {current_activity}")
-
-            # Ping the sync endpoint to reset the server's idle timer to 0
-            # await client.sync(timeout=0, set_presence="online")
-
-            # Update standard presence and capture response
-            pres_resp = await client.set_presence(
-                presence="online", status_msg=current_activity
-            )
-            print(f"Presence API Response: {pres_resp}")
-
-            # Update Element's custom status and capture response
-            acc_resp = await client.set_account_data(
-                "im.vector.user_status", {"status": current_activity}
-            )
-            print(f"Account Data API Response: {acc_resp}")
-
-            last_activity = current_activity
-
-        return web.Response(text="Success")
-    except Exception as e:
-        return web.Response(status=400, text=str(e))
+        if status == "Playing":
+            # Format cleanly depending on whether an artist is provided
+            if artist:
+                yield f"Listening to: {title} - {artist}"
+            else:
+                yield f"Watching: {title}"
+        else:
+            yield "Idle"
 
 
 async def main():
     """Main method of script/module."""
+    client = AsyncClient(HOMESERVER, USERNAME)
+    client.access_token = ACCESS_TOKEN
+    client.device_id = DEVICE_ID
+    client.user_id = USERNAME
 
-    # Setup the web server
-    app = web.Application()
-    app.router.add_post("/update", handle_update)
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    # Run on port 8080
-    site = web.TCPSite(runner, "localhost", 8080)
-    await site.start()
-    print("Listening for browser updates on http://localhost:8080/update")
+    last_activity = ""
+    print("Listening for native Linux MPRIS D-Bus events...")
 
     try:
-        # Keep the script running
-        while True:
-            await asyncio.sleep(3600)
+        # Loop over the async generator as D-Bus events stream in
+        async for current_activity in monitor_mpris():
+
+            if current_activity != last_activity:
+                print(f"Matrix Status -> {current_activity}")
+
+                # 0. Ping the sync endpoint to reset the idle timer
+                await client.sync(timeout=0, set_presence="online")
+
+                # 1. Update standard presence
+                await client.set_presence(
+                    presence="online", status_msg=current_activity
+                )
+
+                # 2. Update Element's custom status
+                if current_activity == "Idle":
+                    # Clear the custom status text if nothing is playing
+                    await client.set_account_data("im.vector.user_status", {})
+                else:
+                    await client.set_account_data(
+                        "im.vector.user_status", {"status": current_activity}
+                    )
+
+                last_activity = current_activity
+
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
-        await runner.cleanup()
         await client.close()
 
 
