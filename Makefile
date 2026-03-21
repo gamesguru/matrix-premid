@@ -52,9 +52,9 @@ LINT_LOCS_PY = $$(git ls-files '*.py')
 
 .PHONY: lint
 lint: ##H Lint the code using Flake8
-	$(VENV)/bin/flake8 $(LINT_LOCS_PY)
-	$(VENV)/bin/pylint $(LINT_LOCS_PY)
-	$(VENV)/bin/ruff $(LINT_LOCS_PY)
+	flake8 $(LINT_LOCS_PY)
+	pylint $(LINT_LOCS_PY)
+	ruff check $(LINT_LOCS_PY)
 
 .PHONY: clean
 clean: ##H Clean the virtual environment and caches
