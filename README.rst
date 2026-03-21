@@ -7,70 +7,76 @@ Requirements
 ------------
 
 * Linux OS with D-Bus and MPRIS support
-* `playerctl` installed (e.g. ``sudo apt install playerctl`` or ``sudo pacman -S playerctl``)
+* ``playerctl`` installed (e.g. ``sudo apt install playerctl`` or ``sudo pacman -S playerctl``)
 * Python 3.7+
 * A Matrix account and homeserver
-* The required Python packages (see ``requirements.txt``)
 
-Installation
-------------
+Global Installation (Systemd Service)
+-------------------------------------
 
-The easiest way to install and run the project is using the provided Makefile.
+If you want to run this constantly in the background as a Linux service:
 
 1. Clone the repository:
 
    .. code-block:: bash
 
-      git clone <repository_url>
+      git clone https://github.com/user/matrix-premid
       cd matrix-premid
 
-2. Configure your environment:
-
-   Copy the sample environment file and edit it with your Matrix credentials:
-
-   .. code-block:: bash
-
-      cp .env.example .env
-
-   Edit the ``.env`` file and fill in:
-   * ``HOMESERVER``: Your homeserver URL (e.g., ``https://matrix.org``)
-   * ``USERNAME``: Your Matrix user ID (e.g., ``@user:matrix.org``)
-   * ``ACCESS_TOKEN``: Your account access token
-   * ``DEVICE_ID``: Your device ID
-
-3. Install the script, systemd service, and dependencies globally:
+2. Install the script, systemd service, and dependencies globally:
 
    .. code-block:: bash
 
       make install
 
-   This will copy the script to ``/usr/local/bin/matrix_premid``, install the dependencies, and configure the systemd service.
+   This will copy the script to ``/usr/local/bin/matrix_premid``, install the python dependencies globally, and place the systemd service in ``/etc/systemd/system/``.
 
-4. Start the background service:
+3. Configure your credentials in the service file:
 
    .. code-block:: bash
 
-      sudo systemctl start matrix-premid.service
+      sudo systemctl edit --full matrix-premid.service
 
-Running
--------
+   Edit the ``Environment=`` variables with your Matrix credentials (HOMESERVER, USERNAME, ACCESS_TOKEN, DEVICE_ID).
 
-Execute the script using the Makefile:
+4. Start and enable the background service:
 
-.. code-block:: bash
+   .. code-block:: bash
 
-   make run
+      sudo systemctl daemon-reload
+      sudo systemctl enable --now matrix-premid.service
+
+Development / Local Running
+---------------------------
+
+If you want to run the script locally from the folder (for testing or development) without installing it system-wide:
+
+1. Clone the repository and configure your environment:
+
+   .. code-block:: bash
+
+      git clone https://github.com/user/matrix-premid
+      cd matrix-premid
+      cp .env.example .env
+
+   Edit the ``.env`` file and fill in your Matrix credentials. Make sure to export them to your shell (e.g., using ``direnv allow`` or sourcing the file) because the script reads directly from ``os.environ``.
+
+2. Install development dependencies:
+
+   .. code-block:: bash
+
+      make deps
+
+3. Run the script directly:
+
+   .. code-block:: bash
+
+      make run
 
 The script will listen to Linux MPRIS events natively. As long as the script is running, when you play media in a browser or application (like Spotify, VLC, Firefox), your standard Matrix presence and your custom Element status will be instantly updated. When media is stopped or paused, the status will return to Idle and clear the custom text.
 
-Development
------------
-
-To install development dependencies (like formatters and linters):
-
-.. code-block:: bash
-
-   make install-dev
+Code Quality Tools
+------------------
 
 You can format the code using Black:
 
