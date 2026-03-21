@@ -18,13 +18,16 @@ deps: $(VENV)/bin/activate ##H Install standard and dev dependencies
 	$(PIP) install -r requirements-dev.txt
 
 .PHONY: install
-install: deps ##H Install dependencies, binary to /usr/local/bin, and systemd service (requires sudo)
-	sudo cp matrix_premid.py /usr/local/bin/matrix_premid
-	sudo chmod +x /usr/local/bin/matrix_premid
-	sudo cp etc/matrix-premid.service /etc/systemd/system/
+install: deps ##H Install dependencies and systemd service (requires sudo)
+	sed -e "s|WorkingDirectory=.*|WorkingDirectory=$(shell pwd)|" \
+	    -e "s|EnvironmentFile=-.*|EnvironmentFile=-$(shell pwd)/.env|" \
+	    -e "s|ExecStart=.*|ExecStart=$(shell pwd)/$(VENV)/bin/python $(shell pwd)/matrix_premid.py|" \
+	    etc/matrix-premid.service > .tmp_service
+	sudo cp .tmp_service /etc/systemd/system/matrix-premid.service
+	rm .tmp_service
 	sudo systemctl daemon-reload
 	sudo systemctl enable matrix-premid.service
-	@echo "Binary, dependencies, and service installed. Run 'sudo systemctl start matrix-premid.service' to start it."
+	@echo "Service installed. Run 'sudo systemctl start matrix-premid.service' to start it."
 
 .PHONY: run
 run: deps ##H Run the application
@@ -37,9 +40,14 @@ format: ##H Format the code using Black
 	-prettier -w .
 	-pre-commit run --all-files
 
+
+LINT_LOCS_PY = $$(git ls-files '*.py')
+
 .PHONY: lint
 lint: ##H Lint the code using Flake8
-	$(VENV)/bin/flake8 matrix_premid.py
+	$(VENV)/bin/flake8 $(LINT_LOCS_PY)
+	$(VENV)/bin/pylint $(LINT_LOCS_PY)
+	$(VENV)/bin/ruff $(LINT_LOCS_PY)
 
 .PHONY: clean
 clean: ##H Clean the virtual environment and caches

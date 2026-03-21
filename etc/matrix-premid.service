@@ -6,17 +6,15 @@ After=network.target
 Type=simple
 User=shane
 SyslogIdentifier=matrix-premid
+# Use relative paths where possible or let the user define them
+WorkingDirectory=/run/media/shane/shane4tb-ent/repos/matrix-premid
 Environment=PYTHONUNBUFFERED=1
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 
-# --- Configuration (Update these or load from an EnvironmentFile) ---
-Environment="HOMESERVER=https://matrix.org"
-Environment="USERNAME=@user:matrix.org"
-Environment="ACCESS_TOKEN=your_access_token_here"
-Environment="DEVICE_ID=your_device_id_here"
-# --------------------------------------------------------------------
+# Load environment variables if they exist in the working directory
+EnvironmentFile=-/run/media/shane/shane4tb-ent/repos/matrix-premid/.env
 
-ExecStart=/usr/local/bin/matrix_premid
+ExecStart=/run/media/shane/shane4tb-ent/repos/matrix-premid/.venv/bin/python /run/media/shane/shane4tb-ent/repos/matrix-premid/matrix_premid.py
 Restart=on-failure
 RestartSec=120
 
