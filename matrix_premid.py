@@ -97,6 +97,7 @@ class MatrixStatusManager:
 async def monitor_mpris(manager: MatrixStatusManager):
     """
     Hooks into the D-Bus MPRIS interface via playerctl.
+    Yields the formatted activity string instantly when media state changes.
     """
     try:
         process = await asyncio.create_subprocess_exec(
@@ -123,8 +124,6 @@ async def monitor_mpris(manager: MatrixStatusManager):
         data = line.decode("utf-8").strip()
         if not data:
             continue
-
-        print(f"DEBUG: Raw playerctl output: {data}")
 
         try:
             status, title, artist = data.split("|", 2)
@@ -200,14 +199,17 @@ async def main():
     print(f"Listening for MPRIS events and web updates on port {actual_port}...")
 
     try:
-        # Run MPRIS monitor
-        await monitor_mpris(manager)
+        # Run MPRIS monitor and Web server concurrently
+        await asyncio.gather(
+            monitor_mpris(manager),
+            # Keep running
+            asyncio.Event().wait()
+        )
     except asyncio.CancelledError:
         pass
     finally:
         await manager.close()
         await runner.cleanup()
-
 
 if __name__ == "__main__":
     try:

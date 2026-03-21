@@ -33,6 +33,13 @@ install: deps ##H Install dependencies, env, and systemd service (requires sudo)
 run: deps ##H Run the application
 	$(PYTHON) matrix_premid.py
 
+.PHONY: test
+test: ##H Test the web update endpoint via curl
+	curl -X POST http://localhost:8080/update \
+		-H "Content-Type: application/json" \
+		-d '{"activity": "Testing Matrix Presence Updater"}'
+	@echo "\nTest status update sent."
+
 .PHONY: format
 format: ##H Format the code using Black
 	$(VENV)/bin/black matrix_premid.py
