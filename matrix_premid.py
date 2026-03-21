@@ -4,6 +4,8 @@ import os
 import sys
 
 from nio import AsyncClient
+from nio.api import Api
+from nio.responses import Response
 
 # --- CONFIGURATION ---
 HOMESERVER = os.environ.get("HOMESERVER", "")
@@ -11,6 +13,22 @@ USERNAME = os.environ.get("USERNAME", "")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
 DEVICE_ID = os.environ.get("DEVICE_ID", "")
 # ---------------------
+
+
+async def account_data_set(client, event_type, content):
+    """
+    Set global account data for the user.
+    This method is missing from matrix-nio AsyncClient 0.25.2.
+    """
+    path = ["user", client.user_id, "account_data", event_type]
+    query_parameters = {"access_token": client.access_token}
+    # nio.api.Api._build_path builds the correct URL path
+    full_path = Api._build_path(path, query_parameters)
+
+    # _send is a private method but it's the only way to send custom PUT
+    return await client._send(
+        Response, "PUT", full_path, data=Api.to_json(content)
+    )  # noqa: E501
 
 
 async def monitor_mpris():
@@ -96,9 +114,6 @@ async def main():
                 if current_activity != last_activity:
                     print(f"Matrix Status -> {current_activity}")
 
-                    # 0. Ping the sync endpoint to reset the idle timer
-                    await client.sync(timeout=0, set_presence="online")
-
                     # 1. Update standard presence
                     await client.set_presence(
                         presence="online", status_msg=current_activity
@@ -107,11 +122,12 @@ async def main():
                     # 2. Update Element's custom status
                     if current_activity == "Idle":
                         # Clear custom status text if nothing is playing
-                        await client.set_account_data(
-                            "im.vector.user_status", {}
+                        await account_data_set(
+                            client, "im.vector.user_status", {}
                         )  # noqa: E501
                     else:
-                        await client.set_account_data(
+                        await account_data_set(
+                            client,
                             "im.vector.user_status",
                             {"status": current_activity},
                         )
