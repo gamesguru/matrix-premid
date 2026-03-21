@@ -97,47 +97,47 @@ class MatrixStatusManager:
 async def monitor_mpris(manager: MatrixStatusManager):
     """
     Hooks into the D-Bus MPRIS interface via playerctl.
-    Yields the formatted activity string instantly when media state changes.
     """
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "playerctl",
-            "metadata",
-            "--format",
-            "{{status}}|{{title}}|{{artist}}",
-            "--follow",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except FileNotFoundError:
-        print(
-            "ERROR: 'playerctl' is not installed or not in PATH.",
-            file=sys.stderr,
-        )
-        return
-
     while True:
-        line = await process.stdout.readline()
-        if not line:
-            break
-
-        data = line.decode("utf-8").strip()
-        if not data:
-            continue
-
         try:
-            status, title, artist = data.split("|", 2)
-        except ValueError:
-            continue
+            process = await asyncio.create_subprocess_exec(
+                "playerctl",
+                "metadata",
+                "--format",
+                "{{status}}|{{title}}|{{artist}}",
+                "--follow",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
 
-        activity = "Idle"
-        if status == "Playing":
-            if artist:
-                activity = f"Listening to: {title} - {artist}"
-            else:
-                activity = f"Watching: {title}"
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
 
-        await manager.update_status(activity)
+                data = line.decode("utf-8").strip()
+                if not data:
+                    continue
+
+                try:
+                    status, title, artist = data.split("|", 2)
+                except ValueError:
+                    continue
+
+                activity = "Idle"
+                if status == "Playing":
+                    if artist:
+                        activity = f"Listening to: {title} - {artist}"
+                    else:
+                        activity = f"Watching: {title}"
+
+                await manager.update_status(activity)
+
+        except Exception as e:
+            print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
+
+        # If it reaches here, playerctl exited or errored
+        await asyncio.sleep(5)
 
 
 async def handle_web_update(request):
@@ -199,17 +199,15 @@ async def main():
     print(f"Listening for MPRIS events and web updates on port {actual_port}...")
 
     try:
-        # Run MPRIS monitor and Web server concurrently
-        await asyncio.gather(
-            monitor_mpris(manager),
-            # Keep running
-            asyncio.Event().wait()
-        )
+        # Run MPRIS monitor (it has its own internal loop)
+        await monitor_mpris(manager)
     except asyncio.CancelledError:
         pass
     finally:
         await manager.close()
         await runner.cleanup()
+
+
 
 if __name__ == "__main__":
     try:
