@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 import asyncio
 import os
+import sys
 
-from dotenv import load_dotenv
 from nio import AsyncClient
-
-load_dotenv()
 
 # --- CONFIGURATION ---
 HOMESERVER = os.environ.get("HOMESERVER", "")
@@ -20,15 +18,23 @@ async def monitor_mpris():
     Hooks into the D-Bus MPRIS interface via playerctl.
     Yields the formatted activity string instantly when media state changes.
     """
-    process = await asyncio.create_subprocess_exec(
-        "playerctl",
-        "metadata",
-        "--format",
-        "{{status}}|{{title}}|{{artist}}",
-        "--follow",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "playerctl",
+            "metadata",
+            "--format",
+            "{{status}}|{{title}}|{{artist}}",
+            "--follow",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        print("ERROR: 'playerctl' is not installed or not in PATH.", file=sys.stderr)
+        print(
+            "Please install it using your package manager (e.g. pacman -S playerctl)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     while True:
         line = await process.stdout.readline()
@@ -56,6 +62,13 @@ async def monitor_mpris():
 
 async def main():
     """Main method of script/module."""
+    if not HOMESERVER or not USERNAME or not ACCESS_TOKEN:
+        print(
+            "ERROR: Missing required configuration in environment variables.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     client = AsyncClient(HOMESERVER, USERNAME)
     client.access_token = ACCESS_TOKEN
     client.device_id = DEVICE_ID
@@ -64,36 +77,50 @@ async def main():
     last_activity = ""
     print("Listening for native Linux MPRIS D-Bus events...")
 
-    try:
-        # Loop over the async generator as D-Bus events stream in
-        async for current_activity in monitor_mpris():
+    backoff = 1
+    max_backoff = 300
 
-            if current_activity != last_activity:
-                print(f"Matrix Status -> {current_activity}")
+    while True:
+        try:
+            # Loop over the async generator as D-Bus events stream in
+            async for current_activity in monitor_mpris():
+                # Reset backoff on successful connection/event
+                backoff = 1
 
-                # 0. Ping the sync endpoint to reset the idle timer
-                await client.sync(timeout=0, set_presence="online")
+                if current_activity != last_activity:
+                    print(f"Matrix Status -> {current_activity}")
 
-                # 1. Update standard presence
-                await client.set_presence(
-                    presence="online", status_msg=current_activity
-                )
+                    # 0. Ping the sync endpoint to reset the idle timer
+                    await client.sync(timeout=0, set_presence="online")
 
-                # 2. Update Element's custom status
-                if current_activity == "Idle":
-                    # Clear the custom status text if nothing is playing
-                    await client.set_account_data("im.vector.user_status", {})
-                else:
-                    await client.set_account_data(
-                        "im.vector.user_status", {"status": current_activity}
+                    # 1. Update standard presence
+                    await client.set_presence(
+                        presence="online", status_msg=current_activity
                     )
 
-                last_activity = current_activity
+                    # 2. Update Element's custom status
+                    if current_activity == "Idle":
+                        # Clear the custom status text if nothing is playing
+                        await client.set_account_data("im.vector.user_status", {})
+                    else:
+                        await client.set_account_data(
+                            "im.vector.user_status", {"status": current_activity}
+                        )
 
-    except KeyboardInterrupt:
-        print("\nStopping...")
-    finally:
-        await client.close()
+                    last_activity = current_activity
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Connection or MPRIS error: {e}", file=sys.stderr)
+            print(f"Retrying in {backoff} seconds...", file=sys.stderr)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
+        except KeyboardInterrupt:
+            print("\nStopping...")
+            break
+
+    await client.close()
 
 
 if __name__ == "__main__":
