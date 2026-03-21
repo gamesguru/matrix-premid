@@ -7,7 +7,7 @@ Type=simple
 User=shane
 SyslogIdentifier=matrix-premid
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/env python3 /home/shane/repos/matrix-premid/matrix_premid.py
+ExecStart=/usr/local/bin/matrix_premid
 Restart=on-failure
 RestartSec=120
 

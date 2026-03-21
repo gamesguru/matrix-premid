@@ -38,11 +38,19 @@ The easiest way to install and run the project is using the provided Makefile.
    * ``ACCESS_TOKEN``: Your account access token
    * ``DEVICE_ID``: Your device ID
 
-3. Install the dependencies (this will automatically create a virtual environment):
+3. Install the script, systemd service, and dependencies globally:
 
    .. code-block:: bash
 
       make install
+
+   This will copy the script to ``/usr/local/bin/matrix_premid``, install the dependencies, and configure the systemd service.
+
+4. Start the background service:
+
+   .. code-block:: bash
+
+      sudo systemctl start matrix-premid.service
 
 Running
 -------
