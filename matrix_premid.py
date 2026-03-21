@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Matrix Presence Updater - Simple & Functional."""
+"""
+Matrix Presence Updater.
+
+A robust script to update Matrix presence and Element status based on
+native Linux MPRIS (playerctl) events and web-based updates.
+"""
 
 import asyncio
 import os
@@ -10,60 +15,93 @@ from dotenv import load_dotenv
 from nio import Api, AsyncClient
 from nio.responses import EmptyResponse, PresenceSetResponse
 
+# Load environment variables from .env if present
 load_dotenv()
 
-# Configuration
+# --- CONFIGURATION ---
 HOMESERVER = os.environ.get("HOMESERVER", "")
 USERNAME = os.environ.get("USERNAME", "")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
+DEVICE_ID = os.environ.get("DEVICE_ID", "")
 PORT = int(os.environ.get("PORT", 8080))
 
 
-class State:
-    """Shared state for the updater."""
+class MatrixStatusUpdater:
+    """Manages Matrix status updates with state tracking and error handling."""
 
-    last_activity = ""
-    client = None
+    def __init__(self, homeserver, username, access_token, device_id=None):
+        self.client = AsyncClient(homeserver, username)
+        self.client.access_token = access_token
+        self.client.user_id = username
+        if device_id:
+            self.client.device_id = device_id
+
+        self.last_activity = ""
+        self.lock = asyncio.Lock()
+
+    async def close(self):
+        """Close the Matrix client session."""
+        await self.client.close()
+
+    async def update(self, activity: str):
+        """Update both standard presence and Element custom status."""
+        if not activity:
+            activity = "Idle"
+
+        async with self.lock:
+            if activity == self.last_activity:
+                return
+
+            print(f"Matrix Status -> {activity}", flush=True)
+
+            try:
+                # 1. Update standard presence (with currently_active=True)
+                path = ["presence", self.client.user_id, "status"]
+                # pylint: disable=protected-access
+                full_path = Api._build_path(
+                    path, {"access_token": self.client.access_token}
+                )
+
+                await self.client._send(
+                    PresenceSetResponse,
+                    "PUT",
+                    full_path,
+                    data=Api.to_json(
+                        {
+                            "presence": "online",
+                            "status_msg": activity,
+                            "currently_active": True,
+                        }
+                    ),
+                )
+
+                # 2. Update Element's custom status (im.vector.user_status)
+                path = [
+                    "user",
+                    self.client.user_id,
+                    "account_data",
+                    "im.vector.user_status",
+                ]
+                # pylint: disable=protected-access
+                full_path = Api._build_path(
+                    path, {"access_token": self.client.access_token}
+                )
+                content = {"status": activity} if activity != "Idle" else {}
+                await self.client._send(
+                    EmptyResponse, "PUT", full_path, data=Api.to_json(content)
+                )
+
+                self.last_activity = activity
+                print(f"✓ Status set: {activity}", flush=True)
+            except Exception as e:
+                print(f"ERROR: Matrix update failed: {e}", file=sys.stderr)
 
 
-async def update_status(activity):
-    """Update Matrix presence and Element custom status."""
-    if activity == State.last_activity:
-        return
-    print(f"Matrix Status -> {activity}", flush=True)
-
-    try:
-        # 1. Standard Presence with currently_active=True
-        path = ["presence", State.client.user_id, "status"]
-        full_path = Api._build_path(path, {"access_token": State.client.access_token})
-        await State.client._send(
-            PresenceSetResponse,
-            "PUT",
-            full_path,
-            data=Api.to_json(
-                {"presence": "online", "status_msg": activity, "currently_active": True}
-            ),
-        )
-
-        # 2. Element Custom Status (im.vector.user_status)
-        path = ["user", State.client.user_id, "account_data", "im.vector.user_status"]
-        full_path = Api._build_path(path, {"access_token": State.client.access_token})
-        content = {"status": activity} if activity != "Idle" else {}
-        await State.client._send(
-            EmptyResponse, "PUT", full_path, data=Api.to_json(content)
-        )
-
-        State.last_activity = activity
-        print(f"✓ Updated: {activity}", flush=True)
-    except Exception as e:
-        print(f"Update Error: {e}", file=sys.stderr)
-
-
-async def monitor_mpris():
-    """Continuously monitor MPRIS via playerctl."""
+async def monitor_mpris(updater: MatrixStatusUpdater):
+    """Monitor MPRIS events via playerctl."""
     while True:
         try:
-            # Fetch current status first
+            # Initial fetch
             proc = await asyncio.create_subprocess_exec(
                 "playerctl",
                 "metadata",
@@ -74,16 +112,21 @@ async def monitor_mpris():
             )
             out, _ = await proc.communicate()
             if out:
-                s, t, a = out.decode().strip().split("|", 2)
-                if s == "Playing":
-                    await update_status(
-                        f"Listening to: {t} - {a}" if a else f"Watching: {t}"
-                    )
-                else:
-                    await update_status("Idle")
+                parts = out.decode().strip().split("|", 2)
+                if len(parts) == 3:
+                    status, title, artist = parts
+                    if status == "Playing":
+                        activity = (
+                            f"Listening to: {title} - {artist}"
+                            if artist
+                            else f"Watching: {title}"
+                        )
+                        await updater.update(activity)
+                    else:
+                        await updater.update("Idle")
 
-            # Then follow for changes
-            proc = await asyncio.create_subprocess_exec(
+            # Follow mode
+            process = await asyncio.create_subprocess_exec(
                 "playerctl",
                 "metadata",
                 "--format",
@@ -92,60 +135,93 @@ async def monitor_mpris():
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
+
             while True:
-                line = await proc.stdout.readline()
+                line = await process.stdout.readline()
                 if not line:
                     break
-                s, t, a = line.decode().strip().split("|", 2)
-                if s == "Playing":
-                    await update_status(
-                        f"Listening to: {t} - {a}" if a else f"Watching: {t}"
-                    )
-                else:
-                    await update_status("Idle")
-        except Exception:
-            pass
+
+                data = line.decode("utf-8").strip()
+                if not data:
+                    continue
+
+                parts = data.split("|", 2)
+                if len(parts) == 3:
+                    status, title, artist = parts
+                    activity = "Idle"
+                    if status == "Playing":
+                        activity = (
+                            f"Listening to: {title} - {artist}"
+                            if artist
+                            else f"Watching: {title}"
+                        )
+                    await updater.update(activity)
+
+        # pylint: disable=broad-exception-caught
+        except Exception as e:
+            print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
+
         await asyncio.sleep(5)
 
 
-async def handle_web(request):
-    """Handle status updates from Tampermonkey."""
+async def handle_web_update(request):
+    """Handle incoming POST updates from Tampermonkey."""
     try:
         data = await request.json()
-        if "activity" in data:
-            print(f"Web update: {data['activity']}", flush=True)
-            await update_status(data["activity"])
-        return web.Response(text="OK")
+        activity = data.get("activity")
+        if activity:
+            updater = request.app["updater"]
+            await updater.update(activity)
+            return web.Response(text="OK")
+    # pylint: disable=broad-exception-caught
     except Exception:
-        return web.Response(text="Error", status=400)
+        pass
+    return web.Response(text="Error", status=400)
 
 
 async def main():
-    """Initialize client and run tasks."""
+    """Start the Matrix updater and web server."""
     if not all([HOMESERVER, USERNAME, ACCESS_TOKEN]):
         print("ERROR: Missing configuration in .env", file=sys.stderr)
         sys.exit(1)
 
-    State.client = AsyncClient(HOMESERVER, USERNAME)
-    State.client.access_token = ACCESS_TOKEN
-    State.client.user_id = USERNAME
+    updater = MatrixStatusUpdater(HOMESERVER, USERNAME, ACCESS_TOKEN, DEVICE_ID)
+    print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
 
     app = web.Application()
-    app.router.add_post("/update", handle_web)
+    app["updater"] = updater
+    app.router.add_post("/update", handle_web_update)
     runner = web.AppRunner(app)
     await runner.setup()
 
-    # Simple port fallback
-    for p in [PORT, 8081, 8082]:
+    # Bind to an available port
+    bound_port = None
+    for port in [PORT, 8081, 8082, 8083, 8084, 8085]:
         try:
-            await web.TCPSite(runner, "localhost", p).start()
-            print(f"Listening on port {p}", flush=True)
+            site = web.TCPSite(runner, "localhost", port)
+            await site.start()
+            bound_port = port
             break
         except OSError:
             continue
 
-    print(f"Matrix: {USERNAME} | {HOMESERVER}", flush=True)
-    await monitor_mpris()
+    if not bound_port:
+        print("ERROR: Could not bind to any port", file=sys.stderr)
+        await updater.close()
+        return
+
+    print(f"Listening on port {bound_port} and MPRIS...", flush=True)
+
+    try:
+        await asyncio.gather(
+            monitor_mpris(updater),
+            asyncio.Event().wait(),  # Keep the web server running
+        )
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await updater.close()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
