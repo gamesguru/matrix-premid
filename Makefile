@@ -60,6 +60,10 @@ clean: ##H Clean the virtual environment and caches
 restart: ##H Restart the background systemd service
 	sudo systemctl restart matrix-premid.service
 
+.PHONY: stop
+stop: ##H Stop the background systemd service
+	sudo systemctl stop matrix-premid.service
+
 .PHONY: _help
 _help: ##H Show this help, list available targets
 	@grep -hE '^[a-zA-Z0-9_\/-]+:.*?##H .*$$' $(MAKEFILE_LIST) \
