@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 import asyncio
+import os
 
 from aiohttp import web
+from dotenv import load_dotenv
 from nio import AsyncClient
 
+load_dotenv()
+
 # --- CONFIGURATION ---
-HOMESERVER = "https://matrix.nutra.tk"
-USERNAME = "@gg:nutra.tk"
-ACCESS_TOKEN = ""
-DEVICE_ID = "2EurpNRICr"
+HOMESERVER = os.environ.get("HOMESERVER", "")
+USERNAME = os.environ.get("USERNAME", "")
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
+DEVICE_ID = os.environ.get("DEVICE_ID", "")
 # ---------------------
 
 
@@ -16,11 +20,12 @@ client = AsyncClient(HOMESERVER, USERNAME)
 client.access_token = ACCESS_TOKEN
 client.device_id = DEVICE_ID
 client.user_id = USERNAME
-last_activity = ""
 
 
 async def handle_update(request):
-    global last_activity
+    """Main handler."""
+
+    last_activity = ""
 
     try:
         data = await request.json()
@@ -52,6 +57,8 @@ async def handle_update(request):
 
 
 async def main():
+    """Main method of script/module."""
+
     # Setup the web server
     app = web.Application()
     app.router.add_post("/update", handle_update)
