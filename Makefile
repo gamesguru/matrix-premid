@@ -18,7 +18,9 @@ deps: $(VENV)/bin/activate ##H Install standard and dev dependencies
 	$(PIP) install -r requirements-dev.txt
 
 .PHONY: install
-install: deps ##H Install dependencies and systemd service (requires sudo)
+install: deps ##H Install dependencies, env, and systemd service (requires sudo)
+	sudo cp .env /etc/matrix-premid.env
+	sudo chmod 600 /etc/matrix-premid.env
 	sed -e "s|{{WORKING_DIR}}|$(shell pwd)|g" \
 	    etc/matrix-premid.service.template > .tmp_service
 	sudo cp .tmp_service /etc/systemd/system/matrix-premid.service
