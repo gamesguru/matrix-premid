@@ -48,6 +48,10 @@ clean: ##H Clean the virtual environment and caches
 	find . -type d -name '__pycache__' -exec rm -rf {} +
 	rm -rf .mypy_cache
 
+.PHONY: restart
+restart: ##H Restart the background systemd service
+	sudo systemctl restart matrix-premid.service
+
 .PHONY: _help
 _help: ##H Show this help, list available targets
 	@grep -hE '^[a-zA-Z0-9_\/-]+:.*?##H .*$$' $(MAKEFILE_LIST) \
