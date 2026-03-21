@@ -48,9 +48,12 @@ async def monitor_mpris():
         if not data:
             continue
 
+        print(f"DEBUG: Raw playerctl output: {data}")
+
         try:
             status, title, artist = data.split("|", 2)
         except ValueError:
+            print(f"DEBUG: Failed to split data: {data}")
             continue
 
         if status == "Playing":
