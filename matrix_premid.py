@@ -125,8 +125,8 @@ class MatrixStatusUpdater:
 
 def parse_mpris_data(data: str) -> str:
     """Parse raw playerctl data into a clean activity string."""
-    # Filter out empty strings from trailing pipes
-    parts = [p.strip() for p in data.split("|") if p.strip()]
+    # Preserve empty segments to maintain correct indexing [Status, Title, Artist, Player]
+    parts = [p.strip() for p in data.split("|")]
     if not parts or not parts[0]:
         return "Idle"
 
@@ -138,26 +138,31 @@ def parse_mpris_data(data: str) -> str:
     if status != "Playing":
         return "Idle"
 
-    # Aggressive YT Music detection
-    is_ytm = (
-        "YouTube Music" in data
-        or "plasma-browser-integration" in player
-        or "firefox" in player
-        or "chrome" in player
-    )
+    # Detect if this is YouTube Music specifically
+    is_ytm = "YouTube Music" in data or "music.youtube.com" in data
 
+    # If title is just the service name, we are effectively idle/loading
     if title == "YouTube Music" and not artist:
         return "Idle (YouTube Music)"
 
-    # Filter out generic 'YouTube Music' artist placeholder
-    clean_artist = "" if artist == "YouTube Music" else artist
+    # Filter out generic browser/integration names from the artist field
+    banned_artists = {
+        "plasma-browser-integration",
+        "firefox",
+        "chrome",
+        "chromium",
+        "webkit",
+    }
+    clean_artist = (
+        "" if artist.lower() in banned_artists or artist == "YouTube Music" else artist
+    )
 
     if clean_artist:
         activity = f"Listening to: {title} - {clean_artist}"
     else:
         activity = f"Watching: {title}"
 
-    # Append ideal footer
+    # Append ideal footer if it's actually YT Music
     if is_ytm and "YT Music" not in activity:
         activity += " | YT Music"
 
