@@ -76,7 +76,7 @@ class MatrixStatusUpdater:
 
             if is_new:
                 print(f"Matrix Status -> {activity}", flush=True)
-                # Update state immediately to prevent race conditions from debouncing
+                # Update state immediately to prevent race conditions
                 self.last_activity = activity
 
             try:
@@ -125,21 +125,27 @@ class MatrixStatusUpdater:
 
 def parse_mpris_data(data: str) -> str:
     """Parse raw playerctl data into a clean activity string."""
-    parts = [p.strip() for p in data.split("|")]
+    # Filter out empty strings from trailing pipes
+    parts = [p.strip() for p in data.split("|") if p.strip()]
     if not parts or not parts[0]:
         return "Idle"
 
     status = parts[0]
     title = parts[1] if len(parts) > 1 else "Unknown Title"
     artist = parts[2] if len(parts) > 2 else ""
+    player = parts[3].lower() if len(parts) > 3 else ""
 
     if status != "Playing":
         return "Idle"
 
-    # Detect if this is YouTube Music metadata
-    is_ytm = "YouTube Music" in data
+    # Aggressive YT Music detection
+    is_ytm = (
+        "YouTube Music" in data
+        or "plasma-browser-integration" in player
+        or "firefox" in player
+        or "chrome" in player
+    )
 
-    # If title is just the service name, we are effectively idle/loading
     if title == "YouTube Music" and not artist:
         return "Idle (YouTube Music)"
 
@@ -161,14 +167,18 @@ def parse_mpris_data(data: str) -> str:
 async def monitor_mpris(updater: MatrixStatusUpdater):
     """Monitor MPRIS events via playerctl."""
     debounce_task = None
-    # Use a container for pending_activity to allow modification in nested scope
     state = {"pending": ""}
 
     async def do_debounced_update(activity):
-        # Wait for potential better metadata
-        delay = 1.2 if activity.startswith("Watching:") else 0.3
+        # Longer wait for low-confidence metadata
+        if activity == "Idle" or activity.startswith("Watching:"):
+            delay = 2.0
+        else:
+            delay = 0.4
+
         await asyncio.sleep(delay)
 
+        # If a better update arrived while we were waiting, skip this one
         if activity.startswith("Watching:") and state["pending"].startswith(
             "Listening:"
         ):
@@ -195,6 +205,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                     break
                 raw = line.decode("utf-8").strip()
                 if raw:
+                    print(f"DEBUG: Raw data: {raw}", flush=True)
                     activity = parse_mpris_data(raw)
                     state["pending"] = activity
                     if debounce_task:
