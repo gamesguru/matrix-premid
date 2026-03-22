@@ -59,6 +59,10 @@ clean: ##H Clean the virtual environment and caches
 restart: ##H Restart the background systemd service
 	sudo systemctl restart matrix-premid.service
 
+.PHONY: log
+log:	##H Watch journalctl logs of installed/running service
+	sudo journalctl -fu matrix-premid
+
 .PHONY: stop
 stop: ##H Stop the background systemd service
 	sudo systemctl stop matrix-premid.service
