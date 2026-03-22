@@ -57,30 +57,45 @@ class MatrixStatusUpdater:
             self.client.device_id = device_id
 
         self.last_activity = ""
+        self.last_title = ""
+        self.last_quality = 0  # 0: Idle, 1: Basic, 2: Full (Artist)
         self.lock = asyncio.Lock()
 
     async def close(self):
         """Close the Matrix client session."""
         await self.client.close()
 
-    async def update(self, activity: str, force: bool = False):
-        """Update both standard presence and Element custom status."""
+    async def update(self, activity: str, title: str = "", force: bool = False):
+        """Update Matrix presence with metadata quality filtering."""
         if not activity:
             activity = "Idle"
 
+        # Determine metadata quality
+        quality = 0
+        if activity.startswith("Listening to:"):
+            quality = 2 if " - " in activity else 1
+        elif activity != "Idle":
+            quality = 1
+
         async with self.lock:
-            # Only log if it's a real transition to a new status
+            # If same song but lower quality metadata, ignore it
+            # This prevents Firefox (no artist) from overriding Plasma (artist)
+            if not force and title and title == self.last_title:
+                if quality < self.last_quality:
+                    return
+
             is_new = activity != self.last_activity
             if not force and not is_new:
                 return
 
             if is_new:
                 print(f"Matrix Status -> {activity}", flush=True)
-                # Update state immediately to prevent race conditions
                 self.last_activity = activity
+                self.last_title = title
+                self.last_quality = quality
 
             try:
-                # 1. Update standard presence (explicit online + text)
+                # 1. Standard Presence
                 await self.client.set_presence(presence="online", status_msg=activity)
 
                 path = ["presence", self.client.user_id, "status"]
@@ -89,7 +104,6 @@ class MatrixStatusUpdater:
                     path, {"access_token": self.client.access_token}
                 )
 
-                # Send custom PUT to ensure currently_active is True
                 await self.client._send(
                     PresenceSetResponse,
                     "PUT",
@@ -103,7 +117,7 @@ class MatrixStatusUpdater:
                     ),
                 )
 
-                # 2. Update Element's custom status (im.vector.user_status)
+                # 2. Element Custom Status
                 path = [
                     "user",
                     self.client.user_id,
@@ -123,50 +137,43 @@ class MatrixStatusUpdater:
                 print(f"ERROR: Matrix update failed: {e}", file=sys.stderr)
 
 
-def parse_mpris_data(data: str) -> str:
-    """Parse raw playerctl data into a clean activity string."""
-    # Preserve empty segments to maintain correct indexing [Status, Title, Artist, Player]
+def parse_mpris_data(data: str) -> tuple[str, str]:
+    """Parse playerctl data into (activity_string, normalized_title)."""
     parts = [p.strip() for p in data.split("|")]
     if not parts or not parts[0]:
-        return "Idle"
+        return "Idle", ""
 
     status = parts[0]
     title = parts[1] if len(parts) > 1 else "Unknown Title"
     artist = parts[2] if len(parts) > 2 else ""
-    player = parts[3].lower() if len(parts) > 3 else ""
 
     if status != "Playing":
-        return "Idle"
+        return "Idle", ""
 
-    # Detect if this is YouTube Music specifically
+    # Normalize title for quality comparison
+    norm_title = title.replace(" | YouTube Music", "").replace(" - YouTube Music", "")
+    norm_title = norm_title.strip()
+
     is_ytm = "YouTube Music" in data or "music.youtube.com" in data
 
-    # If title is just the service name, we are effectively idle/loading
     if title == "YouTube Music" and not artist:
-        return "Idle (YouTube Music)"
+        return "Idle (YouTube Music)", norm_title
 
-    # Filter out generic browser/integration names from the artist field
-    banned_artists = {
-        "plasma-browser-integration",
-        "firefox",
-        "chrome",
-        "chromium",
-        "webkit",
-    }
-    clean_artist = (
-        "" if artist.lower() in banned_artists or artist == "YouTube Music" else artist
-    )
+    # Filter generic names from artist field
+    banned = {"plasma-browser-integration", "firefox", "chrome", "chromium"}
+    is_banned = artist.lower() in banned
+    clean_artist = "" if is_banned or artist == "YouTube Music" else artist
 
+    # We always use 'Listening to' as requested
     if clean_artist:
         activity = f"Listening to: {title} - {clean_artist}"
     else:
-        activity = f"Watching: {title}"
+        activity = f"Listening to: {title}"
 
-    # Append ideal footer if it's actually YT Music
     if is_ytm and "YT Music" not in activity:
         activity += " | YT Music"
 
-    return activity
+    return activity, norm_title
 
 
 async def monitor_mpris(updater: MatrixStatusUpdater):
@@ -174,26 +181,15 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
     debounce_task = None
     state = {"pending": ""}
 
-    async def do_debounced_update(activity):
-        # Longer wait for low-confidence metadata
-        if activity == "Idle" or activity.startswith("Watching:"):
-            delay = 2.0
-        else:
-            delay = 0.4
-
+    async def do_debounced_update(activity, title):
+        delay = 1.2 if " - " not in activity else 0.3
         await asyncio.sleep(delay)
-
-        # If a better update arrived while we were waiting, skip this one
-        if activity.startswith("Watching:") and state["pending"].startswith(
-            "Listening:"
-        ):
+        if " - " not in activity and " - " in state["pending"]:
             return
-
-        await updater.update(activity)
+        await updater.update(activity, title=title)
 
     while True:
         try:
-            # Follow mode
             process = await asyncio.create_subprocess_exec(
                 "playerctl",
                 "metadata",
@@ -211,11 +207,13 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                 raw = line.decode("utf-8").strip()
                 if raw:
                     print(f"DEBUG: Raw data: {raw}", flush=True)
-                    activity = parse_mpris_data(raw)
+                    activity, title = parse_mpris_data(raw)
                     state["pending"] = activity
                     if debounce_task:
                         debounce_task.cancel()
-                    debounce_task = asyncio.create_task(do_debounced_update(activity))
+                    debounce_task = asyncio.create_task(
+                        do_debounced_update(activity, title)
+                    )
 
         except asyncio.CancelledError:
             if debounce_task:
@@ -223,14 +221,13 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
             break
         except (OSError, ValueError) as e:
             print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
-
         await asyncio.sleep(5)
 
 
 async def main():
     """Start the Matrix updater."""
-    # We must keep the lock_fd in scope to prevent the lock from being released
-    lock_fd = acquire_lock()  # pylint: disable=unused-variable # noqa: F841
+    # pylint: disable=unused-variable
+    lock_fd = acquire_lock()  # noqa: F841
     if not all([HOMESERVER, USERNAME, ACCESS_TOKEN]):
         print("ERROR: Missing configuration in .env", file=sys.stderr)
         sys.exit(1)
@@ -239,10 +236,9 @@ async def main():
     print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
 
     async def keep_alive():
-        """Periodically refresh presence and sync to keep status active."""
+        """Keep status online."""
         while True:
             try:
-                # LONG sync is necessary to stay 'online'
                 await asyncio.gather(
                     updater.client.sync(timeout=30, set_presence="online"),
                     updater.update(updater.last_activity, force=True),
@@ -254,10 +250,7 @@ async def main():
 
     try:
         print("Listening for MPRIS events...", flush=True)
-        await asyncio.gather(
-            monitor_mpris(updater),
-            keep_alive(),
-        )
+        await asyncio.gather(monitor_mpris(updater), keep_alive())
     except asyncio.CancelledError:
         pass
     finally:
