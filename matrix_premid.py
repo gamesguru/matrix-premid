@@ -228,7 +228,7 @@ async def main():
                     await updater.client.sync(timeout=30, set_presence="online")
                 except asyncio.CancelledError:
                     break
-                except Exception:
+                except (asyncio.TimeoutError, OSError):
                     await asyncio.sleep(5)
 
         async def update_loop():
@@ -238,7 +238,7 @@ async def main():
                     await asyncio.sleep(15)
                 except asyncio.CancelledError:
                     break
-                except Exception:
+                except (asyncio.TimeoutError, OSError):
                     await asyncio.sleep(5)
 
         await asyncio.gather(sync_loop(), update_loop())
