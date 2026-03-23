@@ -177,14 +177,17 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
 
 
 async def monitor_mpris(updater: MatrixStatusUpdater):
-    """Monitor MPRIS events via playerctl by polling."""
+    """Monitor MPRIS events via playerctl by polling all players."""
     while True:
         try:
             # We poll playerctl instead of --follow to avoid holding a persistent
             # D-Bus connection. This allows apps like Firefox to close without
             # warning about an active media control lock.
+            # Using --all-players ensures we don't accidentally poll a paused tab
+            # when another tab is actively playing.
             process = await asyncio.create_subprocess_exec(
                 "playerctl",
+                "--all-players",
                 "metadata",
                 "--format",
                 "{{status}}|{{title}}|{{artist}}|{{playerName}}",
@@ -194,11 +197,33 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
 
             stdout, _ = await process.communicate()
             if stdout:
-                raw = stdout.decode("utf-8").strip()
-                if raw:
+                lines = stdout.decode("utf-8").strip().splitlines()
+
+                best_activity = "Idle"
+                best_title = ""
+                best_quality = -1
+
+                for raw in lines:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+
                     print(f"DEBUG: Raw data: {raw}", flush=True)
                     activity, title = parse_mpris_data(raw)
-                    await updater.update(activity, title=title)
+
+                    # Calculate quality of this media source
+                    quality = 0
+                    if activity.startswith("Listening to:"):
+                        quality = 2 if " - " in activity else 1
+                    elif activity != "Idle" and not activity.startswith("Idle"):
+                        quality = 1
+
+                    if quality > best_quality:
+                        best_activity = activity
+                        best_title = title
+                        best_quality = quality
+
+                await updater.update(best_activity, title=best_title)
 
         except asyncio.CancelledError:
             break
