@@ -1,2 +1,2 @@
-matrix-nio
-python-dotenv
+matrix-nio==0.25.2
+python-dotenv==1.2.2

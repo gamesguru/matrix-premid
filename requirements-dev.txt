@@ -1,6 +1,6 @@
 -r requirements.txt
-black
-flake8
-isort
-pylint
-ruff
+black==26.3.1
+flake8==7.3.0
+isort==8.0.1
+pylint==4.0.5
+ruff==0.15.7
