@@ -177,50 +177,34 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
 
 
 async def monitor_mpris(updater: MatrixStatusUpdater):
-    """Monitor MPRIS events via playerctl."""
-    debounce_task = None
-    state = {"pending": ""}
-
-    async def do_debounced_update(activity, title):
-        delay = 1.2 if " - " not in activity else 0.3
-        await asyncio.sleep(delay)
-        if " - " not in activity and " - " in state["pending"]:
-            return
-        await updater.update(activity, title=title)
-
+    """Monitor MPRIS events via playerctl by polling."""
     while True:
         try:
+            # We poll playerctl instead of --follow to avoid holding a persistent
+            # D-Bus connection. This allows apps like Firefox to close without
+            # warning about an active media control lock.
             process = await asyncio.create_subprocess_exec(
                 "playerctl",
                 "metadata",
                 "--format",
                 "{{status}}|{{title}}|{{artist}}|{{playerName}}",
-                "--follow",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
 
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                raw = line.decode("utf-8").strip()
+            stdout, _ = await process.communicate()
+            if stdout:
+                raw = stdout.decode("utf-8").strip()
                 if raw:
                     print(f"DEBUG: Raw data: {raw}", flush=True)
                     activity, title = parse_mpris_data(raw)
-                    state["pending"] = activity
-                    if debounce_task:
-                        debounce_task.cancel()
-                    debounce_task = asyncio.create_task(
-                        do_debounced_update(activity, title)
-                    )
+                    await updater.update(activity, title=title)
 
         except asyncio.CancelledError:
-            if debounce_task:
-                debounce_task.cancel()
             break
         except (OSError, ValueError) as e:
             print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
+
         await asyncio.sleep(5)
 
 
