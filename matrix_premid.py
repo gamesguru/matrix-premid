@@ -237,16 +237,27 @@ async def main():
 
     async def keep_alive():
         """Keep status online."""
-        while True:
-            try:
-                await asyncio.gather(
-                    updater.client.sync(timeout=30, set_presence="online"),
-                    updater.update(updater.last_activity, force=True),
-                )
-            except asyncio.CancelledError:
-                break
-            except (asyncio.TimeoutError, OSError):
-                await asyncio.sleep(5)
+
+        async def sync_loop():
+            while True:
+                try:
+                    await updater.client.sync(timeout=30, set_presence="online")
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    await asyncio.sleep(5)
+
+        async def update_loop():
+            while True:
+                try:
+                    await updater.update(updater.last_activity, force=True)
+                    await asyncio.sleep(15)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    await asyncio.sleep(5)
+
+        await asyncio.gather(sync_loop(), update_loop())
 
     try:
         print("Listening for MPRIS events...", flush=True)
