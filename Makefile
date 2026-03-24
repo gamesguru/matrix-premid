@@ -26,6 +26,7 @@ install: ##H Install dependencies, env, binary, and systemd service to /opt (req
 	sudo cp matrix_premid.py requirements.txt $(INSTALL_DIR)/
 	if [ -f .env ]; then \
 		sudo cp .env $(INSTALL_DIR)/.env; \
+		sudo chown $(USER):$(USER) $(INSTALL_DIR)/.env; \
 		sudo chmod 600 $(INSTALL_DIR)/.env; \
 	fi
 	sudo python3 -m venv $(INSTALL_DIR)/.venv
