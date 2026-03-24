@@ -33,15 +33,15 @@ def test_parse_mpris_data_html_entities():
     assert title == "Princess Chelsea & Friends"
 
 
-def test_get_best_mpris_activity_ignores_idle_youtube_music_when_paused():
+def test_get_best_mpris_activity_prioritizes_paused_over_idle():
     lines = [
         f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox",
         f"Paused{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}plasma-browser-integration",  # noqa: E501
     ]
     activity, title = _get_best_mpris_activity(lines)
-    # The new behavior properly drops Paused songs so we get a clean Idle state
-    assert activity == "Idle"
-    assert title == ""
+    # The new behavior properly boosts Paused songs over empty Idle
+    assert activity == "Paused: Awesome Song - Awesome Artist | YouTube Music"
+    assert title == "Awesome Song"
 
 
 def test_get_best_mpris_activity_picks_highest_quality():
