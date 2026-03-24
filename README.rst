@@ -30,6 +30,8 @@ If you want to run this constantly in the background as a Linux service, indepen
       cp .env.example .env
       nano .env
 
+   *(Note: If you populate the ``.env`` file locally before installing, the installer will automatically copy and use it for the background service.)*
+
 3. Install the script, systemd service, and dependencies globally to ``/opt``:
 
    .. code-block:: bash

@@ -178,6 +178,37 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
     return activity, norm_title
 
 
+def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
+    """Parse multiple player lines and extract the best metadata."""
+    best_activity = "Idle"
+    best_title = ""
+    best_quality = -1
+
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+
+        print(f"DEBUG: Raw data: {raw}", flush=True)
+        activity, title = parse_mpris_data(raw)
+
+        # Calculate quality of this media source
+        quality = 0
+        if activity.startswith("Listening to:"):
+            quality = 20 if " - " in activity else 10
+            if "YT Music" in activity:
+                quality += 1
+        elif activity != "Idle" and not activity.startswith("Idle"):
+            quality = 10
+
+        if quality > best_quality:
+            best_activity = activity
+            best_title = title
+            best_quality = quality
+
+    return best_activity, best_title
+
+
 async def monitor_mpris(updater: MatrixStatusUpdater):
     """Monitor MPRIS events via playerctl by polling all players."""
     while True:
@@ -200,34 +231,8 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
             stdout, _ = await process.communicate()
             if stdout:
                 lines = stdout.decode("utf-8").strip().splitlines()
-
-                best_activity = "Idle"
-                best_title = ""
-                best_quality = -1
-
-                for raw in lines:
-                    raw = raw.strip()
-                    if not raw:
-                        continue
-
-                    print(f"DEBUG: Raw data: {raw}", flush=True)
-                    activity, title = parse_mpris_data(raw)
-
-                    # Calculate quality of this media source
-                    quality = 0
-                    if activity.startswith("Listening to:"):
-                        quality = 20 if " - " in activity else 10
-                        if "YT Music" in activity:
-                            quality += 1
-                    elif activity != "Idle" and not activity.startswith("Idle"):
-                        quality = 10
-
-                    if quality > best_quality:
-                        best_activity = activity
-                        best_title = title
-                        best_quality = quality
-
-                await updater.update(best_activity, title=best_title)
+                activity, title = _get_best_mpris_activity(lines)
+                await updater.update(activity, title=title)
 
         except asyncio.CancelledError:
             break
