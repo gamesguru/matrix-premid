@@ -75,6 +75,7 @@ class MatrixStatusUpdater:
         self.last_activity = ""
         self.last_title = ""
         self.last_quality = 0  # 0: Idle, 1: Basic, 2: Full (Artist)
+        self.current_presence = "online"  # Default fallback
         self.lock = asyncio.Lock()
 
     async def close(self):
@@ -118,7 +119,9 @@ class MatrixStatusUpdater:
 
             try:
                 # 1. Standard Presence
-                await self.client.set_presence(presence="online", status_msg=activity)
+                await self.client.set_presence(
+                    presence=self.current_presence, status_msg=activity
+                )
 
                 path = ["presence", self.client.user_id, "status"]
                 # pylint: disable=protected-access
@@ -132,7 +135,7 @@ class MatrixStatusUpdater:
                     full_path,
                     data=Api.to_json(
                         {
-                            "presence": "online",
+                            "presence": self.current_presence,
                             "status_msg": activity,
                             "currently_active": True,
                         }
@@ -302,7 +305,15 @@ async def main():
         async def sync_loop():
             while True:
                 try:
-                    await updater.client.sync(timeout=30, set_presence="online")
+                    # Use a bare sync to passively ingest account state
+                    resp = await updater.client.sync(timeout=30)
+                    if hasattr(resp, "presence") and resp.presence:
+                        # Extract the user's native presence state
+                        # so we stop blindly overriding 'busy'/'dnd'.
+                        # Note: we must locate our own user status.
+                        for event in getattr(resp.presence, "events", []):
+                            if event.user_id == updater.client.user_id:
+                                updater.current_presence = event.presence
                 except asyncio.CancelledError:
                     break
                 except (asyncio.TimeoutError, OSError):
