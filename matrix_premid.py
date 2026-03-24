@@ -423,6 +423,19 @@ async def main():
     )
     print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
 
+    shutdown_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def signal_handler():
+        print("\nInitiating graceful shutdown...", flush=True)
+        shutdown_event.set()
+
+    try:
+        loop.add_signal_handler(signal.SIGINT, signal_handler)
+        loop.add_signal_handler(signal.SIGTERM, signal_handler)
+    except NotImplementedError:  # pragma: no cover
+        pass
+
     async def keep_alive():
         """Keep status online."""
 
@@ -437,8 +450,8 @@ async def main():
                         print(f"ERROR: sync failed: {msg}", file=sys.stderr)
                         if getattr(resp, "status_code", 0) in (401, 403):
                             print("ERROR: Unauthorized. Exiting.", file=sys.stderr)
-                            # Cannot exit inside async gather without raising
-                            raise asyncio.CancelledError
+                            shutdown_event.set()
+                            break
                     # We no longer read event.presence to inherit 'dnd'/'busy'
                     # because the user explicitly wants to be forced Online.
                     if updater.current_presence != "online":
@@ -457,32 +470,36 @@ async def main():
 
         await sync_loop()
 
+    print("Listening for MPRIS events...", flush=True)
+
+    # Run tasks in background
+    tasks = [
+        asyncio.create_task(monitor_mpris(updater)),
+        asyncio.create_task(keep_alive()),
+    ]
+
+    # Wait for a shutdown signal
+    await shutdown_event.wait()
+
+    # Cancel background tasks
+    for t in tasks:
+        t.cancel()
+
+    print("Clearing Matrix status before exit...", flush=True)
     try:
-        print("Listening for MPRIS events...", flush=True)
-        await asyncio.gather(monitor_mpris(updater), keep_alive())
-    except asyncio.CancelledError:
+        await asyncio.wait_for(
+            updater.update("", force=True, is_exit=True), timeout=3.0
+        )
+    except (  # pylint: disable=broad-exception-caught
+        Exception,
+        asyncio.CancelledError,
+    ):
         pass
-    finally:
-        print("Clearing Matrix status before exit...", flush=True)
-        try:
-            await asyncio.wait_for(
-                updater.update("", force=True, is_exit=True), timeout=3.0
-            )
-        except (  # pylint: disable=broad-exception-caught
-            Exception,
-            asyncio.CancelledError,
-        ):
-            pass
-        await updater.close()
+
+    await updater.close()
 
 
 if __name__ == "__main__":
-
-    def _sigterm_handler(_signo, _stack_frame):
-        raise SystemExit(0)
-
-    signal.signal(signal.SIGTERM, _sigterm_handler)
-
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
