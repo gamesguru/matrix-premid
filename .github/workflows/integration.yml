@@ -22,6 +22,8 @@ jobs:
           CONDUIT_DATABASE_BACKEND: sqlite
           CONDUIT_ADDRESS: "0.0.0.0"
           CONDUIT_PORT: 8008
+          CONDUIT_REGISTRATION_TOKEN: "ci_test_token"
+          CONDUWUIT_REGISTRATION_TOKEN: "ci_test_token"
 
     steps:
       - uses: actions/checkout@v4

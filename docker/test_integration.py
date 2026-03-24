@@ -26,7 +26,10 @@ def test_integration():
             {
                 "username": "ci_user",
                 "password": "ci_password",
-                "auth": {"type": "m.login.dummy"},
+                "auth": {
+                    "type": "m.login.registration_token",
+                    "token": "ci_test_token",
+                },
             }
         ).encode("utf-8"),
         headers={"Content-Type": "application/json"},
