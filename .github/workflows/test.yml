@@ -8,7 +8,7 @@ on:
     branches: ["master", "main"]
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +36,22 @@ jobs:
       - name: Run Unit Tests (pytest)
         run: |
           python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Start Conduit Homeserver (Integration Backend)
         run: |

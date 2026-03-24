@@ -171,13 +171,18 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
     banned = {"plasma-browser-integration", "firefox", "chrome", "chromium"}
     is_banned = artist.lower() in banned
     clean_artist = "" if is_banned or artist == "YouTube Music" else artist
+    clean_artist = (
+        clean_artist.replace(" - YouTube Music", "")
+        .replace(" | YouTube Music", "")
+        .strip()
+    )
 
     prefix = "Listening to:" if status == "Playing" else "Paused:"
 
     if clean_artist:
-        activity = f"{prefix} {title} - {clean_artist}"
+        activity = f"{prefix} {norm_title} - {clean_artist}"
     else:
-        activity = f"{prefix} {title}"
+        activity = f"{prefix} {norm_title}"
 
     if is_ytm and "YT Music" not in activity:
         activity += " | YT Music"
@@ -190,6 +195,10 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     best_activity = "Idle"
     best_title = ""
     best_quality = 0
+
+    global_is_ytm = any(
+        "YouTube Music" in line or "music.youtube.com" in line for line in lines
+    )
 
     for raw in lines:
         raw = raw.strip()
@@ -216,6 +225,9 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
             best_activity = activity
             best_title = title
             best_quality = quality
+
+    if global_is_ytm and "YT Music" not in best_activity and best_activity != "Idle":
+        best_activity += " | YT Music"
 
     return best_activity, best_title
 
