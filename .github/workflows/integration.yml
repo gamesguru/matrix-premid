@@ -27,23 +27,11 @@ jobs:
 
       - name: Start Conduwuit Configured Homeserver
         run: |
-          cat << 'EOF' > conduwuit.toml
-          [global]
-          server_name = "localhost"
-          allow_registration = true
-          yes_i_am_very_sure_i_want_an_open_server = true
-          force_disable_first_run_mode = true
-          database_path = "/tmp/conduwuit"
-          database_backend = "sqlite"
-          address = "0.0.0.0"
-          port = 8008
-          EOF
           docker run -d --name conduwuit \
             -p 8008:8008 \
-            -v $PWD/conduwuit.toml:/etc/conduwuit.toml:ro \
+            -v $PWD/docker/conduwuit.toml:/etc/conduwuit.toml:ro \
             -e CONDUWUIT_CONFIG=/etc/conduwuit.toml \
             ghcr.io/continuwuity/continuwuity:latest
-
       - name: Wait for Conduwuit to be ready
         run: |
           echo "Waiting for Conduwuit to be ready..."
