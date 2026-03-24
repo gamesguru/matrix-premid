@@ -94,7 +94,7 @@ class MatrixStatusUpdater:
 
         # Determine metadata quality
         quality = 0
-        if activity.startswith("Listening to:"):
+        if activity.startswith("Listening to:") or activity.startswith("Watching:"):
             quality = 20 if " - " in activity else 10
             if "YT Music" in activity:
                 quality += 1
