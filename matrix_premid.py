@@ -57,8 +57,13 @@ def acquire_lock():
         sys.exit(1)
 
 
-# Suppress noisy matrix-nio validation errors
-logging.getLogger("nio").setLevel(logging.CRITICAL)
+DEBUG_MODE = "--debug" in sys.argv
+
+if DEBUG_MODE:
+    logging.getLogger("nio").setLevel(logging.DEBUG)
+else:
+    # Suppress noisy matrix-nio validation errors
+    logging.getLogger("nio").setLevel(logging.CRITICAL)
 
 # --- CONFIGURATION ---
 HOMESERVER = os.environ.get("HOMESERVER", "")
@@ -88,10 +93,12 @@ class MatrixStatusUpdater:
         """Close the Matrix client session."""
         await self.client.close()
 
-    async def update(self, activity: str, title: str = "", force: bool = False):
+    async def update(
+        self, activity: str, title: str = "", force: bool = False, is_exit: bool = False
+    ):
         """Update Matrix presence with metadata quality filtering."""
-        # pylint: disable=too-many-branches, too-many-statements
-        if not activity:
+        # pylint: disable=too-many-branches, too-many-statements, too-many-locals
+        if not activity and not is_exit:
             activity = "Idle"
 
         # Determine metadata quality
@@ -104,24 +111,24 @@ class MatrixStatusUpdater:
             quality = 6 if " - " in activity else 4
             if "YT Music" in activity:
                 quality += 1
-        elif activity != "Idle" and not activity.startswith("Idle"):
+        elif activity != "Idle" and not activity.startswith("Idle") and activity != "":
             quality = 10
 
         async with self.lock:
             # If same song but lower quality metadata, ignore it
             # This prevents Firefox (no artist) from overriding Plasma (artist)
-            if not force and title and title == self.last_title:
+            if not force and not is_exit and title and title == self.last_title:
                 if quality < self.last_quality:
                     return
 
             is_new = activity != self.last_activity
-            if not force and not is_new:
+            if not force and not is_new and not is_exit:
                 # Reset strikes if we are consistently playing the same non-idle song
                 if activity != "Idle":
                     self.idle_strikes = 0
                 return
 
-            if activity == "Idle":
+            if activity == "Idle" and not is_exit:
                 self.idle_strikes += 1
                 if self.idle_strikes < 3 and not force:
                     # Debounce: wait for 3 consecutive polls (15s) of 'Idle'
@@ -131,20 +138,27 @@ class MatrixStatusUpdater:
             else:
                 self.idle_strikes = 0
 
-            if is_new:
+            if is_new and not is_exit:
                 print(
                     f"Matrix Status [{self.current_presence}] -> {activity}", flush=True
                 )
+
+            if not is_exit:
                 self.last_activity = activity
                 self.last_title = title
                 self.last_quality = quality
 
             try:
                 # 1. Standard Presence
-                pres_msg = activity if activity != "Idle" else ""
-                resp1 = await self.client.set_presence(
-                    presence=self.current_presence, status_msg=pres_msg
-                )
+                if is_exit:
+                    resp1 = await self.client.set_presence(
+                        presence="offline", status_msg=""
+                    )
+                else:
+                    pres_msg = activity if activity != "Idle" else ""
+                    resp1 = await self.client.set_presence(
+                        presence=self.current_presence, status_msg=pres_msg
+                    )
                 if isinstance(resp1, ErrorResponse):  # pragma: no cover
                     print(
                         "ERROR: set_presence failed: "
@@ -158,17 +172,21 @@ class MatrixStatusUpdater:
                     path, {"access_token": self.client.access_token}
                 )
 
+                if is_exit:
+                    payload = {"presence": "offline"}
+                else:
+                    payload = {
+                        "presence": self.current_presence,
+                        "currently_active": True,
+                    }
+                    if activity and activity != "Idle":
+                        payload["status_msg"] = activity
+
                 resp2 = await self.client._send(
                     PresenceSetResponse,
                     "PUT",
                     full_path,
-                    data=Api.to_json(
-                        {
-                            "presence": self.current_presence,
-                            "status_msg": activity,
-                            "currently_active": True,
-                        }
-                    ),
+                    data=Api.to_json(payload),
                 )
                 if isinstance(resp2, ErrorResponse):  # pragma: no cover
                     print(
@@ -188,7 +206,11 @@ class MatrixStatusUpdater:
                 full_path = Api._build_path(
                     path, {"access_token": self.client.access_token}
                 )
-                content = {"status": activity} if activity != "Idle" else {}
+                content = (
+                    {"status": activity}
+                    if activity and activity != "Idle" and not is_exit
+                    else {}
+                )
                 resp3 = await self.client._send(
                     EmptyResponse, "PUT", full_path, data=Api.to_json(content)
                 )
@@ -329,6 +351,8 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
             stdout, _ = await process.communicate()
             if stdout:
                 lines = stdout.decode("utf-8").strip().splitlines()
+                if DEBUG_MODE:
+                    print(f"DEBUG: raw playerctl lines: {lines}", flush=True)
                 activity, title = _get_best_mpris_activity(lines)
                 await updater.update(activity, title=title)
 
@@ -359,23 +383,6 @@ async def main():
     )
     print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
 
-    try:
-        print("Validating homeserver connectivity...", flush=True)
-        whoami = await updater.client.whoami()
-        if isinstance(whoami, ErrorResponse):  # pragma: no cover
-            print(
-                "ERROR: Failed to connect to homeserver or invalid token: "
-                f"{getattr(whoami, 'message', whoami)}",
-                file=sys.stderr,
-            )
-            await updater.close()
-            sys.exit(1)
-    # pylint: disable=broad-exception-caught
-    except Exception as e:  # pragma: no cover
-        print(f"ERROR: Connection to homeserver failed: {e}", file=sys.stderr)
-        await updater.close()
-        sys.exit(1)
-
     async def keep_alive():
         """Keep status online."""
 
@@ -385,10 +392,13 @@ async def main():
                     # Use a bare sync to passively ingest account state
                     resp = await updater.client.sync(timeout=30)
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
-                        print(
-                            f"ERROR: sync failed: {getattr(resp, 'message', resp)}",
-                            file=sys.stderr,
-                        )
+                        msg = getattr(resp, "message", resp)
+                        print(f"ERROR: sync failed: {msg}", file=sys.stderr)
+                        if getattr(resp, "status_code", 0) in (401, 403):
+                            print("ERROR: Unauthorized. Exiting.", file=sys.stderr)
+                            # Cannot exit inside async gather without raising,
+                            # but we can raise CancelledError or stop
+                            raise asyncio.CancelledError
                     elif hasattr(resp, "presence") and resp.presence:
                         # Extract the user's native presence state
                         # so we stop blindly overriding 'busy'/'dnd'.
@@ -456,7 +466,9 @@ async def main():
     finally:
         print("Clearing Matrix status before exit...", flush=True)
         try:
-            await asyncio.wait_for(updater.update("Idle", force=True), timeout=3.0)
+            await asyncio.wait_for(
+                updater.update("", force=True, is_exit=True), timeout=3.0
+            )
         except (  # pylint: disable=broad-exception-caught
             Exception,
             asyncio.CancelledError,
