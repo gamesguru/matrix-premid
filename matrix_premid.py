@@ -80,6 +80,7 @@ class MatrixStatusUpdater:
         self.last_title = ""
         self.last_quality = 0  # 0: Idle, 1: Basic, 2: Full (Artist)
         self.current_presence = "online"  # Default fallback
+        self.idle_strikes = 0
         self.lock = asyncio.Lock()
 
     async def close(self):
@@ -114,7 +115,20 @@ class MatrixStatusUpdater:
 
             is_new = activity != self.last_activity
             if not force and not is_new:
+                # Reset strikes if we are consistently playing the same non-idle song
+                if activity != "Idle":
+                    self.idle_strikes = 0
                 return
+
+            if activity == "Idle":
+                self.idle_strikes += 1
+                if self.idle_strikes < 3 and not force:
+                    # Debounce: wait for 3 consecutive polls (15s) of 'Idle'
+                    # before actually clearing the Matrix status, preventing
+                    # flickering during 1-2 second gaps between songs.
+                    return
+            else:
+                self.idle_strikes = 0
 
             if is_new:
                 print(
@@ -379,14 +393,27 @@ async def main():
                         for event in getattr(resp.presence, "events", []):
                             if event.user_id == updater.client.user_id:
                                 async with updater.lock:
-                                    if updater.current_presence != event.presence:
+                                    safe_presence = (
+                                        event.presence
+                                        if event.presence
+                                        in (
+                                            "online",
+                                            "offline",
+                                            "unavailable",
+                                            "dnd",
+                                            "hidden",
+                                        )
+                                        else "online"
+                                    )
+
+                                    if updater.current_presence != safe_presence:
                                         print(
                                             f"Detected Native Presence: "
                                             f"{updater.current_presence} "
-                                            f"-> {event.presence}",
+                                            f"-> {safe_presence}",
                                             flush=True,
                                         )
-                                    updater.current_presence = event.presence
+                                    updater.current_presence = safe_presence
                 except asyncio.CancelledError:
                     break
                 except (
