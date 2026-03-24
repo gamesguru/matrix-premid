@@ -54,5 +54,7 @@ jobs:
           exit 1
 
       - name: Run CI Integration Tests
+        env:
+          CONDUIT_CONTAINER_ID: ${{ job.services.conduwuit.id }}
         run: |
           python docker/test_integration.py

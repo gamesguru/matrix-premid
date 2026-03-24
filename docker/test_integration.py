@@ -16,10 +16,28 @@ SEP_STR = "_||_"
 
 
 def test_integration():
-    print("🚀 Starting Matrix PreMiD Integration Test...")
+    print("[i] Starting Matrix PreMiD Integration Test...")
+
+    print("[*] Fetching dynamically generated Conduwuit registration token...")
+    reg_token = "ci_test_token"
+    container_name = os.environ.get("CONDUIT_CONTAINER_ID", "conduwuit")
+    try:
+        logs = subprocess.check_output(
+            ["docker", "logs", container_name], text=True, stderr=subprocess.STDOUT
+        )
+        for line in logs.splitlines():
+            if "using the registration token" in line:
+                parts = line.split("using the registration token ")
+                if len(parts) > 1:
+                    reg_token = parts[1].split()[0]
+                    break
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print(f"[!] Failed to fetch docker logs: {e}")
+
+    print(f"[✓] Discovered registration token: {reg_token}")
 
     # 1. Register User on local Conduit
-    print("📝 Registering dummy user via matrix client API...")
+    print("[*] Registering dummy user via matrix client API...")
     req = urllib.request.Request(
         "http://localhost:8008/_matrix/client/v3/register",
         data=json.dumps(
@@ -28,7 +46,7 @@ def test_integration():
                 "password": "ci_password",
                 "auth": {
                     "type": "m.login.registration_token",
-                    "token": "ci_test_token",
+                    "token": reg_token,
                 },
             }
         ).encode("utf-8"),
@@ -40,13 +58,13 @@ def test_integration():
             token = res["access_token"]
             device_id = res["device_id"]
             user_id = res["user_id"]
-            print(f"✅ Registered user: {user_id}")
+            print(f"[✓] Registered user: {user_id}")
     except urllib.error.HTTPError as e:
         print("Registration failed:", e.read().decode())
         sys.exit(1)
 
     # 2. Setup mock playerctl
-    print("🛠️  Setting up mocked playerctl...")
+    print("[*] Setting up mocked playerctl...")
     mock_dir = tempfile.mkdtemp()
     mock_script = os.path.join(mock_dir, "playerctl")
     with open(mock_script, "w", encoding="utf-8") as f:
@@ -60,7 +78,7 @@ def test_integration():
 
     # 3. Write .env inside repo root
     # Note: tests are run from the project root in CI
-    print("🌐 Writing local configuration .env file...")
+    print("[*] Writing local configuration .env file...")
     with open(".env", "w", encoding="utf-8") as f:
         f.write("HOMESERVER=http://localhost:8008\n")
         f.write(f"USERNAME={user_id}\n")
@@ -68,19 +86,19 @@ def test_integration():
         f.write(f"DEVICE_ID={device_id}\n")
 
     # 4. Start matrix_premid.py
-    print("🏃 Starting matrix_premid.py background daemon...")
+    print("[i] Starting matrix_premid.py background daemon...")
     env = os.environ.copy()
     # Prepend mock_dir so subprocess picks up our fake playerctl instead of real one
     env["PATH"] = f"{mock_dir}:{env['PATH']}"
     proc = subprocess.Popen([sys.executable, "matrix_premid.py"], env=env)
 
     # 5. Wait for loop to pick up playerctl, parse, and send to homeserver
-    print("⏳ Waiting 10 seconds for service to update presence...")
+    print("[~] Waiting 10 seconds for service to update presence...")
     time.sleep(10)
 
     # 6. Verify Matrix Status updates
     try:
-        print("🔍 Verifying Presence API state...")
+        print("[*] Verifying Presence API state...")
         expected = "Listening to: GitHub Actions Song - Integration Tests"
 
         encoded_user = urllib.parse.quote(user_id)
@@ -93,9 +111,9 @@ def test_integration():
             pres = json.loads(resp.read().decode())
             assert pres["presence"] == "online", f"Presence not online: {pres}"
             assert pres["status_msg"] == expected, f"Status MSG mismatch: {pres}"
-            print(f"✅ Presence successfully verified: {pres['status_msg']}")
+            print(f"[✓] Presence successfully verified: {pres['status_msg']}")
 
-        print("🔍 Verifying Account Data API state (im.vector.user_status)...")
+        print("[*] Verifying Account Data API state (im.vector.user_status)...")
         encoded_user = urllib.parse.quote(user_id)
         acc_url = (
             f"http://localhost:8008/_matrix/client/v3/user/"
@@ -108,12 +126,12 @@ def test_integration():
         with urllib.request.urlopen(req) as resp:
             acc = json.loads(resp.read().decode())
             assert acc["status"] == expected, f"Account Data mismatch: {acc}"
-            print(f"✅ Account Data successfully verified: {acc['status']}")
+            print(f"[✓] Account Data successfully verified: {acc['status']}")
 
-        print("🎉 ALL INTEGRATION TESTS PASSED 🎉")
+        print("*** ALL INTEGRATION TESTS PASSED ***")
 
     except AssertionError as e:
-        print(f"❌ TEST FAILED: {e}")
+        print(f"[X] TEST FAILED: {e}")
         sys.exit(1)
     finally:
         # Cleanup
