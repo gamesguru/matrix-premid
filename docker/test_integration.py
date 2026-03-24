@@ -26,7 +26,9 @@ def test_integration():
     for _ in range(15):
         try:
             logs = subprocess.check_output(
-                ["docker", "logs", "conduwuit"], text=True, stderr=subprocess.STDOUT
+                ["docker", "logs", "--since", "1s", "conduwuit"],
+                text=True,
+                stderr=subprocess.STDOUT,
             )
             found = False
             for line in logs.splitlines():

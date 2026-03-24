@@ -270,7 +270,7 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
         activity, title = parse_mpris_data(raw, global_provider)
 
         quality = 0
-        if activity.startswith("Listening to:") or activity.startswith("Watching"):
+        if activity.startswith("Listening to:") or activity.startswith("Watching:"):
             quality = 20 if " - " in activity else 10
             if global_provider and f"| {global_provider}" in activity:
                 quality += 1
