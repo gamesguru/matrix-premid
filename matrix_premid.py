@@ -200,6 +200,8 @@ class MatrixStatusUpdater:
                     )
 
             # pylint: disable=broad-exception-caught
+            except asyncio.CancelledError:
+                raise
             except Exception as e:  # pragma: no cover
                 print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
