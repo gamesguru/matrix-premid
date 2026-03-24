@@ -14,7 +14,7 @@ Requirements
 Global Installation (Systemd Service)
 -------------------------------------
 
-If you want to run this constantly in the background as a Linux service:
+If you want to run this constantly in the background as a Linux service, independent of your cloned repository folder:
 
 1. Clone the repository:
 
@@ -23,23 +23,29 @@ If you want to run this constantly in the background as a Linux service:
       git clone https://github.com/user/matrix-premid
       cd matrix-premid
 
-2. Install the script, systemd service, and dependencies globally:
+2. Configure your credentials locally (or edit later):
+
+   .. code-block:: bash
+
+      cp .env.example .env
+      nano .env
+
+3. Install the script, systemd service, and dependencies globally to ``/opt``:
 
    .. code-block:: bash
 
       make install
 
-   This will copy the script to ``/usr/local/bin/matrix_premid``, install the python dependencies globally, and place the systemd service in ``/etc/systemd/system/``.
+   This creates the directory ``/opt/matrix-premid``, copies the script and ``.env`` there, sets up an isolated Python virtual environment exclusively for the service, and symlinks the script to ``/usr/local/bin/matrix_premid``. The systemd service is placed in ``/etc/systemd/system/``.
 
-3. Configure your credentials in the service file:
+4. (Optional) Edit credentials after installation:
 
    .. code-block:: bash
 
-      sudo systemctl edit --full matrix-premid.service
+      sudo nano /opt/matrix-premid/.env
+      sudo systemctl restart matrix-premid.service
 
-   Edit the ``Environment=`` variables with your Matrix credentials (HOMESERVER, USERNAME, ACCESS_TOKEN, DEVICE_ID).
-
-4. Start and enable the background service:
+5. Start and enable the background service:
 
    .. code-block:: bash
 

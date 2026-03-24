@@ -17,19 +17,28 @@ init:
 deps: $(VENV)/bin/activate ##H Install standard and dev dependencies
 	$(PIP) install -r requirements-dev.txt
 
+INSTALL_DIR := /opt/matrix-premid
+
 .PHONY: install
-install: deps ##H Install dependencies, env, binary, and systemd service (requires sudo)
-	sudo cp .env /etc/matrix-premid.env
-	sudo chmod 600 /etc/matrix-premid.env
-	sudo cp matrix_premid.py /usr/local/bin/matrix_premid
-	sudo chmod +x /usr/local/bin/matrix_premid
+install: ##H Install dependencies, env, binary, and systemd service to /opt (requires sudo)
+	@echo "Installing globally to $(INSTALL_DIR)..."
+	sudo mkdir -p $(INSTALL_DIR)
+	sudo cp matrix_premid.py requirements.txt $(INSTALL_DIR)/
+	if [ -f .env ]; then \
+		sudo cp .env $(INSTALL_DIR)/.env; \
+		sudo chmod 600 $(INSTALL_DIR)/.env; \
+	fi
+	sudo python3 -m venv $(INSTALL_DIR)/.venv
+	sudo $(INSTALL_DIR)/.venv/bin/pip install -r $(INSTALL_DIR)/requirements.txt
+	sudo ln -sf $(INSTALL_DIR)/matrix_premid.py /usr/local/bin/matrix_premid
+	sudo chmod +x $(INSTALL_DIR)/matrix_premid.py
 	sudo cp etc/matrix-premid.service /etc/systemd/system/matrix-premid.service
 	sudo systemctl daemon-reload
 	sudo systemctl enable matrix-premid.service
-	@echo "Installed to /usr/local/bin/matrix_premid and service created."
+	@echo "Installed to $(INSTALL_DIR) and service created."
 
 .PHONY: run
-run: deps ##H Run the application
+run: deps ##H Run the application locally
 	$(PYTHON) matrix_premid.py
 
 .PHONY: format
