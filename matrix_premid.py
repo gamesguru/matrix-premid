@@ -295,7 +295,8 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
             if global_provider and f"| {global_provider}" in activity:
                 quality += 1
         elif activity.startswith("Paused:"):
-            quality = -1
+            # Ensure paused tracks win over "Idle" (0) but lose to "Playing" (10+)
+            quality = 5
         elif activity != "Idle" and not activity.startswith("Idle"):
             quality = 10
 
