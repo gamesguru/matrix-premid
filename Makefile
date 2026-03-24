@@ -15,12 +15,12 @@ init:
 
 .PHONY: deps
 deps: $(VENV)/bin/activate ##H Install standard and dev dependencies
-	$(PIP) install -r requirements.txt -r requirements-dev.txt
+	$(VENV)/bin/pip install -r requirements.txt -r requirements-dev.txt
 
 INSTALL_DIR := /opt/matrix-premid
 
 .PHONY: test
-test: deps ##H Run unit tests with coverage
+test: ##H Run unit tests with coverage
 	$(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
 
 .PHONY: install

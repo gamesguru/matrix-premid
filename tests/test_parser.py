@@ -39,8 +39,8 @@ def test_get_best_mpris_activity_ignores_idle_youtube_music_when_paused():
         "Paused|Awesome Song|Awesome Artist|plasma-browser-integration",
     ]
     activity, title = _get_best_mpris_activity(lines)
-    # The new behavior properly ranks Paused songs > Idle empty tabs
-    assert activity == "Paused: Awesome Song - Awesome Artist"
+    # The new behavior properly drops Paused songs so we get a clean Idle state
+    assert activity == "Idle"
     assert title == ""
 
 
@@ -57,7 +57,7 @@ def test_get_best_mpris_activity_picks_highest_quality():
 
 
 def test_get_best_mpris_activity_inherits_youtube_music_across_players():
-    """Test that a rich player without YT Music inherits the YTM tag from another tab."""
+    """Test that rich players without YT Music inherit the tag from other tabs."""
     lines = [
         "Playing|Eyes on Fire (Zeds Dead remix) | YouTube Music||firefox",
         "Playing|Eyes on Fire (Zeds Dead remix)"
