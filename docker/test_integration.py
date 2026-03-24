@@ -11,7 +11,7 @@ import urllib.request
 
 SEP_STR = "_||_"
 
-# pylint: disable=missing-docstring, too-many-locals
+# pylint: disable=missing-docstring, too-many-locals, too-many-branches
 # pylint: disable=too-many-statements, consider-using-with
 
 

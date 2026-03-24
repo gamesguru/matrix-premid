@@ -21,6 +21,7 @@ PROVIDERS = {
     "youtube music": "YouTube Music",
     "yt music": "YouTube Music",
     "music.youtube.com": "YouTube Music",
+    "youtube": "YouTube",
     "spotify": "Spotify",
     "netflix": "Netflix",
     "plex": "Plex",
@@ -29,6 +30,8 @@ PROVIDERS = {
     "twitch": "Twitch",
     "apple music": "Apple Music",
 }
+
+VIDEO_PROVIDERS = {"Netflix", "Plex", "Twitch", "YouTube"}
 
 SEP_STR = "_||_"
 
@@ -178,7 +181,9 @@ def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
 
     norm_title = title.strip()
 
-    for provider in set(PROVIDERS.values()):
+    # Check longest providers first to prevent substring bugs
+    # (e.g. YouTube vs YouTube Music)
+    for provider in sorted(set(PROVIDERS.values()), key=len, reverse=True):
         for suffix in [
             f" - {provider}",
             f" | {provider}",
@@ -197,7 +202,10 @@ def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     is_banned = artist.lower() in banned
     clean_artist = "" if is_banned else artist
 
-    prefix = "Listening to:" if status == "Playing" else "Paused:"
+    if status == "Playing":
+        prefix = "Watching" if global_provider in VIDEO_PROVIDERS else "Listening to:"
+    else:
+        prefix = "Paused:"
 
     if clean_artist:
         activity = f"{prefix} {norm_title} - {clean_artist}"
@@ -219,7 +227,10 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     global_provider = ""
     for line in lines:
         lower_line = line.lower()
-        for key, name in PROVIDERS.items():
+        # Check longest keys first to prevent substring matches
+        # (e.g. YouTube vs YouTube Music)
+        for key in sorted(PROVIDERS.keys(), key=len, reverse=True):
+            name = PROVIDERS[key]
             if key in lower_line:
                 if (
                     name == "Last.fm"
@@ -228,6 +239,7 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
                 ):
                     continue
                 global_provider = name
+                break
 
     for raw in lines:
         raw = raw.strip()
@@ -237,7 +249,7 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
         activity, title = parse_mpris_data(raw, global_provider)
 
         quality = 0
-        if activity.startswith("Listening to:"):
+        if activity.startswith("Listening to:") or activity.startswith("Watching"):
             quality = 20 if " - " in activity else 10
             if global_provider and f"| {global_provider}" in activity:
                 quality += 1

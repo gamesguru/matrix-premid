@@ -1,7 +1,7 @@
 """Tests for MatrixStatusUpdater and monitor_mpris."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -148,8 +148,16 @@ async def test_main_execution_mocked_gather(_mock_lock, mock_exit):
     with patch("matrix_premid.AsyncClient") as mock_client:
         mock_instance = AsyncMock()
         mock_client.return_value = mock_instance
-        # Raise CancelledError to gracefully exit the infinite sync loop natively
-        mock_instance.sync.side_effect = asyncio.CancelledError()
+
+        mock_event = MagicMock()
+        mock_event.user_id = "@user"
+        mock_event.presence = "dnd"
+
+        mock_resp = MagicMock()
+        mock_resp.presence.events = [mock_event]
+
+        # Emit native valid presence payload once, then gracefully exit loop
+        mock_instance.sync.side_effect = [mock_resp, asyncio.CancelledError()]
 
         with patch(
             "matrix_premid.MatrixStatusUpdater.update", new_callable=AsyncMock
