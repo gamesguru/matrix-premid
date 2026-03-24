@@ -72,12 +72,12 @@ def test_get_best_mpris_activity_inherits_youtube_music_across_players():
 def test_parse_mpris_data_youtube():
     raw = f"Playing{SEP_STR}Some Video{SEP_STR}{SEP_STR}firefox"
     act, title = parse_mpris_data(raw, "YouTube")
-    assert act == "Watching Some Video | YouTube"
+    assert act == "Watching: Some Video | YouTube"
     assert title == "Some Video"
 
 
 def test_parse_mpris_data_netflix():
     raw = f"Playing{SEP_STR}Stranger Things{SEP_STR}{SEP_STR}firefox"
     act, title = parse_mpris_data(raw, "Netflix")
-    assert act == "Watching Stranger Things | Netflix"
+    assert act == "Watching: Stranger Things | Netflix"
     assert title == "Stranger Things"

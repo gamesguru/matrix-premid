@@ -181,9 +181,6 @@ class MatrixStatusUpdater:
                         file=sys.stderr,
                     )
 
-            except asyncio.CancelledError:
-                # Allow task cancellation to propagate properly.
-                raise
             # pylint: disable=broad-exception-caught
             except Exception as e:  # pragma: no cover
                 print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
@@ -338,7 +335,9 @@ async def main():
         print("ERROR: Missing configuration in .env", file=sys.stderr)
         sys.exit(1)
 
-    updater = MatrixStatusUpdater(HOMESERVER, USERNAME, ACCESS_TOKEN)
+    updater = MatrixStatusUpdater(
+        HOMESERVER, USERNAME, ACCESS_TOKEN, device_id=DEVICE_ID
+    )
     print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
 
     try:

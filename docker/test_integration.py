@@ -20,7 +20,7 @@ def test_integration():
     print("[i] Starting Matrix PreMiD Integration Test...")
 
     print("[*] Fetching dynamically generated Conduwuit registration token...")
-    reg_token = "ci_test_token_123"
+    reg_token = None
 
     print("[~] Polling Docker logs until Conduwuit flushes the Welcome message...")
     for _ in range(15):
@@ -47,6 +47,19 @@ def test_integration():
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"[!] Docker logs poll failed: {e}")
         time.sleep(1)
+
+    if not reg_token:
+        print("[!] Failed to discover registration token. Last docker logs:")
+        try:
+            print(
+                subprocess.check_output(
+                    ["docker", "logs", "--tail", "20", "conduwuit"], text=True
+                )
+            )
+        # pylint: disable=broad-exception-caught
+        except Exception:
+            pass
+        sys.exit(1)
 
     print("[✓] Discovered registration token from Conduwuit logs")
 

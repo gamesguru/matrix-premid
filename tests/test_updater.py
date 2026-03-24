@@ -153,7 +153,7 @@ async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
 
         mock_event = MagicMock()
         mock_event.user_id = "@user"
-        mock_event.presence = "online"
+        mock_event.presence = "dnd"
 
         mock_resp = MagicMock()
         mock_resp.presence.events = [mock_event]
