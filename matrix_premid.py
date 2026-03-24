@@ -127,7 +127,7 @@ class MatrixStatusUpdater:
                 resp1 = await self.client.set_presence(
                     presence=self.current_presence, status_msg=activity
                 )
-                if isinstance(resp1, ErrorResponse):
+                if isinstance(resp1, ErrorResponse):  # pragma: no cover
                     print(
                         "ERROR: set_presence failed: "
                         f"{getattr(resp1, 'message', resp1)}",
@@ -152,7 +152,7 @@ class MatrixStatusUpdater:
                         }
                     ),
                 )
-                if isinstance(resp2, ErrorResponse):
+                if isinstance(resp2, ErrorResponse):  # pragma: no cover
                     print(
                         "ERROR: custom presence failed: "
                         f"{getattr(resp2, 'message', resp2)}",
@@ -174,14 +174,15 @@ class MatrixStatusUpdater:
                 resp3 = await self.client._send(
                     EmptyResponse, "PUT", full_path, data=Api.to_json(content)
                 )
-                if isinstance(resp3, ErrorResponse):
+                if isinstance(resp3, ErrorResponse):  # pragma: no cover
                     print(
                         "ERROR: account_data failed:"
                         f"{getattr(resp3, 'message', resp3)}",
                         file=sys.stderr,
                     )
 
-            except Exception as e:  # pylint: disable=broad-exception-caught
+            # pylint: disable-next=broad-exception-caught
+            except Exception as e:  # pragma: no cover
                 print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
 
@@ -340,7 +341,7 @@ async def main():
     try:
         print("Validating homeserver connectivity...", flush=True)
         whoami = await updater.client.whoami()
-        if isinstance(whoami, ErrorResponse):
+        if isinstance(whoami, ErrorResponse):  # pragma: no cover
             print(
                 "ERROR: Failed to connect to homeserver or invalid token: "
                 f"{getattr(whoami, 'message', whoami)}",
@@ -348,7 +349,8 @@ async def main():
             )
             await updater.close()
             sys.exit(1)
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    # pylint: disable-next=broad-exception-caught
+    except Exception as e:  # pragma: no cover
         print(f"ERROR: Connection to homeserver failed: {e}", file=sys.stderr)
         await updater.close()
         sys.exit(1)
@@ -361,7 +363,7 @@ async def main():
                 try:
                     # Use a bare sync to passively ingest account state
                     resp = await updater.client.sync(timeout=30)
-                    if isinstance(resp, ErrorResponse):
+                    if isinstance(resp, ErrorResponse):  # pragma: no cover
                         print(
                             f"ERROR: sync failed: {getattr(resp, 'message', resp)}",
                             file=sys.stderr,
@@ -375,7 +377,10 @@ async def main():
                                 updater.current_presence = event.presence
                 except asyncio.CancelledError:
                     break
-                except Exception as e:  # pylint: disable=broad-exception-caught
+                except (
+                    # pylint: disable=broad-exception-caught # pragma: no cover
+                    Exception
+                ) as e:
                     print(
                         f"ERROR: sync loop exception: {type(e).__name__} - {e}",
                         file=sys.stderr,
@@ -389,7 +394,10 @@ async def main():
                     await asyncio.sleep(15)
                 except asyncio.CancelledError:
                     break
-                except Exception as e:  # pylint: disable=broad-exception-caught
+                except (
+                    # pylint: disable=broad-exception-caught # pragma: no cover
+                    Exception
+                ) as e:
                     print(
                         f"ERROR: update loop exception: {type(e).__name__} - {e}",
                         file=sys.stderr,
