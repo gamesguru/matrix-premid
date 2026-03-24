@@ -1,33 +1,33 @@
 """Unit tests for the project."""
 
-from matrix_premid import _get_best_mpris_activity, parse_mpris_data
+from matrix_premid import SEP_STR, _get_best_mpris_activity, parse_mpris_data
 
 # pylint: disable=missing-docstring,line-too-long
 
 
 def test_parse_mpris_data_playing_song_with_artist():
-    raw = "Playing❖Sea Of Feelings❖LIONE❖firefox"
+    raw = f"Playing{SEP_STR}Sea Of Feelings{SEP_STR}LIONE{SEP_STR}firefox"
     activity, title = parse_mpris_data(raw)
     assert activity == "Listening to: Sea Of Feelings - LIONE"
     assert title == "Sea Of Feelings"
 
 
 def test_parse_mpris_data_playing_youtube_music_suffix():
-    raw = "Playing❖Sea Of Feelings - YouTube Music❖❖firefox"
+    raw = f"Playing{SEP_STR}Sea Of Feelings - YouTube Music{SEP_STR}{SEP_STR}firefox"
     activity, title = parse_mpris_data(raw, "YouTube Music")
     assert activity == "Listening to: Sea Of Feelings | YouTube Music"
     assert title == "Sea Of Feelings"
 
 
 def test_parse_mpris_data_paused_song():
-    raw = "Paused❖Sea Of Feelings❖LIONE❖firefox"
+    raw = f"Paused{SEP_STR}Sea Of Feelings{SEP_STR}LIONE{SEP_STR}firefox"
     activity, title = parse_mpris_data(raw)
     assert activity == "Paused: Sea Of Feelings - LIONE"
     assert title == "Sea Of Feelings"
 
 
 def test_parse_mpris_data_html_entities():
-    raw = "Playing❖Princess Chelsea &amp; Friends❖Princess Chelsea❖firefox"
+    raw = f"Playing{SEP_STR}Princess Chelsea &amp; Friends{SEP_STR}Princess Chelsea{SEP_STR}firefox"  # noqa: E501
     activity, title = parse_mpris_data(raw)
     assert activity == "Listening to: Princess Chelsea & Friends - Princess Chelsea"
     assert title == "Princess Chelsea & Friends"
@@ -35,8 +35,8 @@ def test_parse_mpris_data_html_entities():
 
 def test_get_best_mpris_activity_ignores_idle_youtube_music_when_paused():
     lines = [
-        "Playing❖YouTube Music❖❖firefox",
-        "Paused❖Awesome Song❖Awesome Artist❖plasma-browser-integration",
+        f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox",
+        f"Paused{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}plasma-browser-integration",  # noqa: E501
     ]
     activity, title = _get_best_mpris_activity(lines)
     # The new behavior properly drops Paused songs so we get a clean Idle state
@@ -46,9 +46,9 @@ def test_get_best_mpris_activity_ignores_idle_youtube_music_when_paused():
 
 def test_get_best_mpris_activity_picks_highest_quality():
     lines = [
-        "Playing❖YouTube Music❖❖firefox",
-        "Playing❖Awesome Song❖Awesome Artist❖firefox",
-        "Playing❖Basic Song Without Artist❖❖firefox",
+        f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox",
+        f"Playing{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}firefox",
+        f"Playing{SEP_STR}Basic Song Without Artist{SEP_STR}{SEP_STR}firefox",
     ]
     activity, title = _get_best_mpris_activity(lines)
     # The Awesome Song has an artist, giving it quality=20+1=21
@@ -59,8 +59,8 @@ def test_get_best_mpris_activity_picks_highest_quality():
 def test_get_best_mpris_activity_inherits_youtube_music_across_players():
     """Test that rich players without YT Music inherit the tag from other tabs."""
     lines = [
-        "Playing❖Eyes on Fire (Zeds Dead remix) | YouTube Music❖❖firefox",
-        "Playing❖Eyes on Fire (Zeds Dead remix)❖Blue Foundation❖plasma-browser-integration",  # noqa: E501
+        f"Playing{SEP_STR}Eyes on Fire (Zeds Dead remix) | YouTube Music{SEP_STR}{SEP_STR}firefox",  # noqa: E501
+        f"Playing{SEP_STR}Eyes on Fire (Zeds Dead remix){SEP_STR}Blue Foundation{SEP_STR}plasma-browser-integration",  # noqa: E501
     ]
     activity, title = _get_best_mpris_activity(lines)
     assert activity == (

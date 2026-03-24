@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from matrix_premid import MatrixStatusUpdater, main, monitor_mpris
+from matrix_premid import SEP_STR, MatrixStatusUpdater, main, monitor_mpris
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +75,12 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
     """Test MPRIS subprocess parsing defaults best output cleanly."""
     mock_proc = AsyncMock()
     mock_proc.communicate.side_effect = [
-        ("Playing❖Awesome Song❖Awesome Artist❖firefox\n".encode("utf-8"), b""),
+        (
+            f"Playing{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}firefox\n".encode(  # noqa: E501
+                "utf-8"
+            ),
+            b"",
+        ),
         Exception("Break loop"),
     ]
     mock_exec.return_value = mock_proc

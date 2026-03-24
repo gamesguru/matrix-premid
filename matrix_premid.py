@@ -30,6 +30,8 @@ PROVIDERS = {
     "apple music": "Apple Music",
 }
 
+SEP_STR = "_||_"
+
 # Load environment variables from .env if present
 load_dotenv()
 
@@ -160,7 +162,7 @@ class MatrixStatusUpdater:
 def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     """Parse playerctl data into (activity_string, normalized_title)."""
     data = html.unescape(data)
-    parts = [p.strip() for p in data.split("❖")]
+    parts = [p.strip() for p in data.split(SEP_STR)]
     if not parts or not parts[0]:
         return "Idle", ""
 
@@ -263,7 +265,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                 "--all-players",
                 "metadata",
                 "--format",
-                "{{status}}❖{{title}}❖{{artist}}❖{{playerName}}",
+                f"{{{{status}}}}{SEP_STR}{{{{title}}}}{SEP_STR}{{{{artist}}}}{SEP_STR}{{{{playerName}}}}",  # noqa: E501
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
