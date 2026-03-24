@@ -24,14 +24,17 @@ INSTALL_DIR ?= /opt/matrix-premid
 
 .PHONY: install
 install: ##H Install dependencies, env, binary, and systemd service to /opt (requires sudo)
+	@if [ ! -f .env ]; then \
+		echo "$(STYLE_CYAN)Error: .env file not found!$(STYLE_RESET)"; \
+		echo "Please copy .env.example to .env and configure your credentials first."; \
+		exit 1; \
+	fi
 	@echo "Installing globally to $(INSTALL_DIR)..."
 	sudo mkdir -p $(INSTALL_DIR)
 	sudo cp matrix_premid.py requirements.txt $(INSTALL_DIR)/
-	if [ -f .env ]; then \
-		sudo cp .env $(INSTALL_DIR)/.env; \
-		sudo chown $$(id -un):$$(id -gn) $(INSTALL_DIR)/.env; \
-		sudo chmod 600 $(INSTALL_DIR)/.env; \
-	fi
+	sudo cp .env $(INSTALL_DIR)/.env
+	sudo chown $$(id -un):$$(id -gn) $(INSTALL_DIR)/.env
+	sudo chmod 600 $(INSTALL_DIR)/.env
 	sudo python3 -m venv $(INSTALL_DIR)/.venv
 	sudo $(INSTALL_DIR)/.venv/bin/pip install -r $(INSTALL_DIR)/requirements.txt
 	sudo ln -sf $(INSTALL_DIR)/matrix_premid.py /usr/local/bin/matrix_premid
