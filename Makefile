@@ -42,15 +42,16 @@ install: ##H Install dependencies, env, binary, and systemd service to /opt (req
 run: deps ##H Run the application locally
 	$(PYTHON) matrix_premid.py
 
+
+LINT_LOCS_PY = $$(git ls-files '*.py')
+
 .PHONY: format
 format: ##H Format the code using Black
-	$(VENV)/bin/black matrix_premid.py
-	$(VENV)/bin/isort matrix_premid.py
+	$(VENV)/bin/black $(LINT_LOCS_PY)
+	$(VENV)/bin/isort $(LINT_LOCS_PY)
 	-prettier -w .
 	-pre-commit run --all-files
 
-
-LINT_LOCS_PY = $$(git ls-files '*.py')
 
 .PHONY: lint
 lint: ##H Lint the code using Flake8

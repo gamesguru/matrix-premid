@@ -32,3 +32,25 @@ jobs:
       - name: Lint code (Flake8)
         run: |
           flake8 matrix_premid.py
+
+      - name: Run Unit Tests (pytest)
+        run: |
+          python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
+
+      - name: Start Conduit Homeserver (Integration Backend)
+        run: |
+          docker pull matrixconduit/matrix-conduit:latest
+          docker run -d --name conduit \
+            -p 8008:6167 \
+            -e CONDUIT_SERVER_NAME=localhost \
+            -e CONDUIT_ALLOW_REGISTRATION=true \
+            matrixconduit/matrix-conduit:latest
+
+          echo "Waiting for Conduit to be ready..."
+          for i in {1..15}; do
+            curl -s http://localhost:8008/_matrix/client/versions > /dev/null && echo "Conduit Ready!" && break || sleep 1
+          done
+
+      - name: Run CI Integration Tests
+        run: |
+          python docker/test_integration.py

@@ -4,3 +4,17 @@ line-length = 88
 [tool.isort]
 profile = "black"
 line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+command_line = "-m pytest -svv"
+source = ["matrix_premid.py"]
+
+[tool.coverage.report]
+fail_under = 80.00
+precision = 2
+show_missing = true
+skip_empty = true
+skip_covered = true

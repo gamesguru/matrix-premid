@@ -77,7 +77,11 @@ class MatrixStatusUpdater:
             quality = 20 if " - " in activity else 10
             if "YT Music" in activity:
                 quality += 1
-        elif activity != "Idle":
+        elif activity.startswith("Paused:"):
+            quality = 6 if " - " in activity else 4
+            if "YT Music" in activity:
+                quality += 1
+        elif activity != "Idle" and not activity.startswith("Idle"):
             quality = 10
 
         async with self.lock:
@@ -151,7 +155,7 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
     title = parts[1] if len(parts) > 1 else "Unknown Title"
     artist = parts[2] if len(parts) > 2 else ""
 
-    if status != "Playing":
+    if status not in ("Playing", "Paused"):
         return "Idle", ""
 
     # Normalize title for quality comparison
@@ -168,11 +172,12 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
     is_banned = artist.lower() in banned
     clean_artist = "" if is_banned or artist == "YouTube Music" else artist
 
-    # We always use 'Listening to' as requested
+    prefix = "Listening to:" if status == "Playing" else "Paused:"
+
     if clean_artist:
-        activity = f"Listening to: {title} - {clean_artist}"
+        activity = f"{prefix} {title} - {clean_artist}"
     else:
-        activity = f"Listening to: {title}"
+        activity = f"{prefix} {title}"
 
     if is_ytm and "YT Music" not in activity:
         activity += " | YT Music"
@@ -184,7 +189,7 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     """Parse multiple player lines and extract the best metadata."""
     best_activity = "Idle"
     best_title = ""
-    best_quality = -1
+    best_quality = 0
 
     for raw in lines:
         raw = raw.strip()
@@ -198,6 +203,10 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
         quality = 0
         if activity.startswith("Listening to:"):
             quality = 20 if " - " in activity else 10
+            if "YT Music" in activity:
+                quality += 1
+        elif activity.startswith("Paused:"):
+            quality = 6 if " - " in activity else 4
             if "YT Music" in activity:
                 quality += 1
         elif activity != "Idle" and not activity.startswith("Idle"):
