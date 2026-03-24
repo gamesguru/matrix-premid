@@ -7,6 +7,13 @@ line_length = 88
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=matrix_premid --cov-report=term-missing"
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::pytest.PytestDeprecationWarning"
+]
 
 [tool.coverage.run]
 command_line = "-m pytest -svv"
