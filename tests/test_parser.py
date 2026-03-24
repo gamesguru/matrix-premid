@@ -53,18 +53,18 @@ def test_get_best_mpris_activity_picks_highest_quality():
     activity, title = _get_best_mpris_activity(lines)
     # The Awesome Song has an artist, giving it quality=20+1=21
     assert activity == "Listening to: Awesome Song - Awesome Artist | YT Music"
+    assert title == "Awesome Song"
 
 
 def test_get_best_mpris_activity_inherits_youtube_music_across_players():
     """Test that a rich player without YT Music inherits the YTM tag from another tab."""
     lines = [
         "Playing|Eyes on Fire (Zeds Dead remix) | YouTube Music||firefox",
-        "Playing|Eyes on Fire (Zeds Dead remix)|Blue Foundation|plasma-browser-integration",
+        "Playing|Eyes on Fire (Zeds Dead remix)"
+        "|Blue Foundation|plasma-browser-integration",
     ]
     activity, title = _get_best_mpris_activity(lines)
-    assert (
-        activity
-        == "Listening to: Eyes on Fire (Zeds Dead remix) - Blue Foundation | YT Music"
+    assert activity == (
+        "Listening to: Eyes on Fire (Zeds Dead remix) " "- Blue Foundation | YT Music"
     )
     assert title == "Eyes on Fire (Zeds Dead remix)"
-    assert title == "Awesome Song"
