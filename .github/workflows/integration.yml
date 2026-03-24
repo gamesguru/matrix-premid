@@ -10,20 +10,6 @@ on:
 jobs:
   integration:
     runs-on: ubuntu-latest
-    services:
-      conduwuit:
-        image: ghcr.io/continuwuity/continuwuity:latest
-        ports:
-          - 8008:8008
-        env:
-          CONDUWUIT_SERVER_NAME: localhost
-          CONDUWUIT_ALLOW_REGISTRATION: "true"
-          CONDUWUIT_DATABASE_PATH: /tmp/conduwuit
-          CONDUWUIT_DATABASE_BACKEND: sqlite
-          CONDUWUIT_ADDRESS: "0.0.0.0"
-          CONDUWUIT_PORT: 8008
-          CONDUWUIT_REGISTRATION_TOKEN: "ci_test_token_123"
-
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +25,24 @@ jobs:
           make deps
           echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
+      - name: Start Conduwuit Configured Homeserver
+        run: |
+          cat << 'EOF' > conduwuit.toml
+          [global]
+          server_name = "localhost"
+          allow_registration = true
+          database_path = "/tmp/conduwuit"
+          database_backend = "sqlite"
+          address = "0.0.0.0"
+          port = 8008
+          registration_token = "ci_test_token_123"
+          EOF
+          docker run -d --name conduwuit \
+            -p 8008:8008 \
+            -v $PWD/conduwuit.toml:/etc/conduwuit.toml \
+            -e CONDUWUIT_CONFIG=/etc/conduwuit.toml \
+            ghcr.io/continuwuity/continuwuity:latest
+
       - name: Wait for Conduwuit to be ready
         run: |
           echo "Waiting for Conduwuit to be ready..."
@@ -53,7 +57,5 @@ jobs:
           exit 1
 
       - name: Run CI Integration Tests
-        env:
-          CONDUWUIT_CONTAINER_ID: ${{ job.services.conduwuit.id }}
         run: |
           python docker/test_integration.py
