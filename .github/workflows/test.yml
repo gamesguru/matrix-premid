@@ -52,12 +52,12 @@ jobs:
 
       - name: Start Conduwuit Homeserver (Integration Backend)
         run: |
-          docker pull girlbossceo/conduwuit:latest
+          docker pull ghcr.io/continuwuity/continuwuity:latest
           docker run -d --name conduwuit \
             -p 8008:6167 \
             -e CONDUIT_SERVER_NAME=localhost \
             -e CONDUIT_ALLOW_REGISTRATION=true \
-            girlbossceo/conduwuit:latest
+            ghcr.io/continuwuity/continuwuity:latest
 
           echo "Waiting for Conduwuit to be ready..."
           for i in {1..30}; do
