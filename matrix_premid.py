@@ -90,7 +90,7 @@ class MatrixStatusUpdater:
 
     async def update(self, activity: str, title: str = "", force: bool = False):
         """Update Matrix presence with metadata quality filtering."""
-        # pylint: disable=too-many-branches
+        # pylint: disable=too-many-branches, too-many-statements
         if not activity:
             activity = "Idle"
 
@@ -200,8 +200,6 @@ class MatrixStatusUpdater:
                     )
 
             # pylint: disable=broad-exception-caught
-            except asyncio.CancelledError:
-                raise
             except Exception as e:  # pragma: no cover
                 print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
