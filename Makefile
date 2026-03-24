@@ -46,8 +46,8 @@ install: ##H Install dependencies, env, binary, and systemd service to /opt (req
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .PHONY: test
-test: ##H Run unit tests with coverage
-	$(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
+test: deps ##H Run unit tests with coverage
+	PYTHONPATH=. $(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
 
 .PHONY: run
 run: deps ##H Run the application locally

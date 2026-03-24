@@ -215,9 +215,7 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
             if "YT Music" in activity:
                 quality += 1
         elif activity.startswith("Paused:"):
-            quality = 6 if " - " in activity else 4
-            if "YT Music" in activity:
-                quality += 1
+            quality = -1
         elif activity != "Idle" and not activity.startswith("Idle"):
             quality = 10
 
