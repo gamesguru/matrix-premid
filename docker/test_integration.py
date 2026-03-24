@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -33,9 +34,9 @@ def test_integration():
                     parts = line.split("using the registration token ")
                     if len(parts) > 1:
                         raw_token = parts[1].split()[0]
-                        # Purge ANSI trace-subscriber terminal color codes explicitly
-                        # so the HTTP JSON payload doesn't transmit invisible bytes!
-                        reg_token = "".join(c for c in raw_token if c.isalnum())
+                        # Strip ANSI trace-subscriber terminal color codes properly
+                        clean_token = re.sub(r"\x1b\[[0-9;]*m", "", raw_token)
+                        reg_token = "".join(c for c in clean_token if c.isalnum())
                         found = True
                         break
             if found:
@@ -124,6 +125,7 @@ def test_integration():
     env = os.environ.copy()
     # Prepend mock_dir so subprocess picks up our fake playerctl instead of real one
     env["PATH"] = f"{mock_dir}:{env['PATH']}"
+    env["PREMID_LOCK_FILE"] = os.path.join(mock_dir, "test.lock")
     proc = subprocess.Popen([sys.executable, "matrix_premid.py"], env=env)
 
     # 5. Wait for loop to pick up playerctl, parse, and send to homeserver

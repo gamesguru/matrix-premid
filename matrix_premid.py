@@ -11,11 +11,12 @@ import fcntl
 import html
 import logging
 import os
+import shutil
 import sys
 
 from dotenv import load_dotenv
 from nio import Api, AsyncClient
-from nio.responses import EmptyResponse, PresenceSetResponse
+from nio.responses import EmptyResponse, ErrorResponse, PresenceSetResponse
 
 PROVIDERS = {
     "youtube music": "YouTube Music",
@@ -39,7 +40,7 @@ SEP_STR = "_||_"
 load_dotenv()
 
 # Lock file to prevent multiple instances
-LOCK_FILE = "/tmp/matrix-premid.lock"
+LOCK_FILE = os.environ.get("PREMID_LOCK_FILE", "/tmp/matrix-premid.lock")
 
 
 def acquire_lock():
@@ -87,6 +88,7 @@ class MatrixStatusUpdater:
 
     async def update(self, activity: str, title: str = "", force: bool = False):
         """Update Matrix presence with metadata quality filtering."""
+        # pylint: disable=too-many-branches
         if not activity:
             activity = "Idle"
 
@@ -122,9 +124,15 @@ class MatrixStatusUpdater:
 
             try:
                 # 1. Standard Presence
-                await self.client.set_presence(
+                resp1 = await self.client.set_presence(
                     presence=self.current_presence, status_msg=activity
                 )
+                if isinstance(resp1, ErrorResponse):
+                    print(
+                        "ERROR: set_presence failed: "
+                        f"{getattr(resp1, 'message', resp1)}",
+                        file=sys.stderr,
+                    )
 
                 path = ["presence", self.client.user_id, "status"]
                 # pylint: disable=protected-access
@@ -132,7 +140,7 @@ class MatrixStatusUpdater:
                     path, {"access_token": self.client.access_token}
                 )
 
-                await self.client._send(
+                resp2 = await self.client._send(
                     PresenceSetResponse,
                     "PUT",
                     full_path,
@@ -144,6 +152,12 @@ class MatrixStatusUpdater:
                         }
                     ),
                 )
+                if isinstance(resp2, ErrorResponse):
+                    print(
+                        "ERROR: custom presence failed: "
+                        f"{getattr(resp2, 'message', resp2)}",
+                        file=sys.stderr,
+                    )
 
                 # 2. Element Custom Status
                 path = [
@@ -157,12 +171,18 @@ class MatrixStatusUpdater:
                     path, {"access_token": self.client.access_token}
                 )
                 content = {"status": activity} if activity != "Idle" else {}
-                await self.client._send(
+                resp3 = await self.client._send(
                     EmptyResponse, "PUT", full_path, data=Api.to_json(content)
                 )
+                if isinstance(resp3, ErrorResponse):
+                    print(
+                        "ERROR: account_data failed:"
+                        f"{getattr(resp3, 'message', resp3)}",
+                        file=sys.stderr,
+                    )
 
-            except (asyncio.TimeoutError, OSError) as e:
-                print(f"ERROR: Matrix update failed: {e}", file=sys.stderr)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
 
 def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
@@ -302,6 +322,12 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
 
 async def main():
     """Start the Matrix updater."""
+    # pylint: disable=too-many-statements
+
+    if not shutil.which("playerctl"):
+        print("ERROR: playerctl command not found. Please install it.", file=sys.stderr)
+        sys.exit(1)
+
     # pylint: disable=unused-variable
     lock_fd = acquire_lock()  # noqa: F841
     if not all([HOMESERVER, USERNAME, ACCESS_TOKEN]):
@@ -311,6 +337,22 @@ async def main():
     updater = MatrixStatusUpdater(HOMESERVER, USERNAME, ACCESS_TOKEN)
     print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
 
+    try:
+        print("Validating homeserver connectivity...", flush=True)
+        whoami = await updater.client.whoami()
+        if isinstance(whoami, ErrorResponse):
+            print(
+                "ERROR: Failed to connect to homeserver or invalid token: "
+                f"{getattr(whoami, 'message', whoami)}",
+                file=sys.stderr,
+            )
+            await updater.close()
+            sys.exit(1)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print(f"ERROR: Connection to homeserver failed: {e}", file=sys.stderr)
+        await updater.close()
+        sys.exit(1)
+
     async def keep_alive():
         """Keep status online."""
 
@@ -319,7 +361,12 @@ async def main():
                 try:
                     # Use a bare sync to passively ingest account state
                     resp = await updater.client.sync(timeout=30)
-                    if hasattr(resp, "presence") and resp.presence:
+                    if isinstance(resp, ErrorResponse):
+                        print(
+                            f"ERROR: sync failed: {getattr(resp, 'message', resp)}",
+                            file=sys.stderr,
+                        )
+                    elif hasattr(resp, "presence") and resp.presence:
                         # Extract the user's native presence state
                         # so we stop blindly overriding 'busy'/'dnd'.
                         # Note: we must locate our own user status.
@@ -328,7 +375,11 @@ async def main():
                                 updater.current_presence = event.presence
                 except asyncio.CancelledError:
                     break
-                except (asyncio.TimeoutError, OSError):
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    print(
+                        f"ERROR: sync loop exception: {type(e).__name__} - {e}",
+                        file=sys.stderr,
+                    )
                     await asyncio.sleep(5)
 
         async def update_loop():
@@ -338,7 +389,11 @@ async def main():
                     await asyncio.sleep(15)
                 except asyncio.CancelledError:
                     break
-                except (asyncio.TimeoutError, OSError):
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    print(
+                        f"ERROR: update loop exception: {type(e).__name__} - {e}",
+                        file=sys.stderr,
+                    )
                     await asyncio.sleep(5)
 
         await asyncio.gather(sync_loop(), update_loop())

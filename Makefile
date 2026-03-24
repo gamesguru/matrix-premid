@@ -11,7 +11,7 @@ PYTHON=$(VENV)/bin/python
 PIP=$(VENV)/bin/pip
 
 .PHONY: init
-init:
+init:	##H Initialize .venv virtual dev env
 	python3 -m venv $(VENV)
 	-direnv allow
 
@@ -50,11 +50,11 @@ install: ##H Install dependencies, env, binary, and systemd service to /opt (req
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .PHONY: test
-test: deps ##H Run unit tests with coverage
+test:	##H Run unit tests with coverage
 	PYTHONPATH=. $(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
 
 .PHONY: run
-run: deps ##H Run the application locally
+run:	##H Run the application locally
 	$(PYTHON) matrix_premid.py
 
 .PHONY: restart
