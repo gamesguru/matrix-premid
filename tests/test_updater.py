@@ -78,6 +78,7 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
         (
             f"Playing{SEP_STR}Awesome Song{SEP_STR}"
             f"Awesome Artist{SEP_STR}firefox\n".encode("utf-8"),
+            b"",
         ),
         Exception("Break loop"),
     ]
