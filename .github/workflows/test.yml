@@ -21,21 +21,18 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          make init
+          make deps
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
-      - name: Check code formatting (Black)
-        run: |
-          black --check matrix_premid.py
+      - name: Check code formatting
+        run: make format
 
-      - name: Lint code (Flake8)
-        run: |
-          flake8 matrix_premid.py
+      - name: Lint code
+        run: make lint
 
-      - name: Run Unit Tests (pytest)
-        run: |
-          python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
+      - name: Run Unit Tests
+        run: make test
 
   integration:
     runs-on: ubuntu-latest
