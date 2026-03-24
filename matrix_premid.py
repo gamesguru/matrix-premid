@@ -263,8 +263,19 @@ def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
         return "Idle", ""
 
     status = parts[0]
-    title = parts[1] if len(parts) > 1 else "Unknown Title"
-    artist = parts[2] if len(parts) > 2 else ""
+
+    def _deep_clean(text: str) -> str:
+        text = html.unescape(html.unescape(text))
+        return (
+            text.replace("&quot;", '"')
+            .replace("&apos;", "'")
+            .replace("&#39;", "'")
+            .replace("&amp;", "&")
+            .strip()
+        )
+
+    title = _deep_clean(parts[1]) if len(parts) > 1 else "Unknown Title"
+    artist = _deep_clean(parts[2]) if len(parts) > 2 else ""
 
     if status not in ("Playing", "Paused"):
         return "Idle", ""
@@ -444,25 +455,7 @@ async def main():
                     )
                     await asyncio.sleep(5)
 
-        async def update_loop():
-            while True:
-                try:
-                    # Removed the force=True update spam
-                    # We just need to sync to stay online
-                    await asyncio.sleep(60)
-                except asyncio.CancelledError:
-                    break
-                except (
-                    # pylint: disable=broad-exception-caught # pragma: no cover
-                    Exception
-                ) as e:
-                    print(
-                        f"ERROR: update loop exception: {type(e).__name__} - {e}",
-                        file=sys.stderr,
-                    )
-                    await asyncio.sleep(5)
-
-        await asyncio.gather(sync_loop(), update_loop())
+        await sync_loop()
 
     try:
         print("Listening for MPRIS events...", flush=True)

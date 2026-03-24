@@ -1,5 +1,7 @@
 """Tests for MatrixStatusUpdater and monitor_mpris."""
 
+# pylint: disable=protected-access
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,6 +33,7 @@ async def test_updater_update():
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
         await updater.update("Listening to: Song | YT Music")
+        await updater._update_task
         updater.client.set_presence.assert_awaited_with(
             presence="online", status_msg="Listening to: Song | YT Music"
         )
@@ -43,6 +46,7 @@ async def test_updater_update_paused():
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("mock", "mock", "mock")
         await updater.update("Paused: Song - Artist | YT Music")
+        await updater._update_task
         updater.client.set_presence.assert_awaited()
 
 
@@ -53,6 +57,7 @@ async def test_updater_update_empty():
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "mock", "mock")
         await updater.update("", force=True)
+        await updater._update_task
         updater.client.set_presence.assert_awaited_with(
             presence="online", status_msg=""
         )
@@ -65,6 +70,7 @@ async def test_updater_update_other():
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "mock", "mock")
         await updater.update("Watching: Movie", title="Movie")
+        await updater._update_task
         updater.client.set_presence.assert_awaited()
 
 
@@ -76,6 +82,7 @@ async def test_updater_update_exception():
         updater = MatrixStatusUpdater("mock", "mock", "mock")
         updater.client.set_presence.side_effect = asyncio.TimeoutError()
         await updater.update("Listening to: Song")
+        await updater._update_task
         updater.client.set_presence.assert_awaited()
 
 
