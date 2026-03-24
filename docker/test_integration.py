@@ -31,12 +31,17 @@ def test_integration():
             found = False
             for line in logs.splitlines():
                 if "using the registration token" in line:
-                    parts = line.split("using the registration token ")
-                    if len(parts) > 1:
-                        raw_token = parts[1].split()[0]
+                    # Extract the registration token using a regex instead of
+                    # stripping to alphanumerics so we preserve valid chars
+                    match = re.search(
+                        r"using the registration token\s+([^\s]+)", line
+                    )
+                    if match:
+                        raw_token = match.group(1)
                         # Strip ANSI trace-subscriber terminal color codes properly
                         clean_token = re.sub(r"\x1b\[[0-9;]*m", "", raw_token)
-                        reg_token = "".join(c for c in clean_token if c.isalnum())
+                        # Trim only surrounding whitespace/punctuation, keep internal chars
+                        reg_token = clean_token.strip(" \t\r\n\"'`.,;:()[]{}")
                         found = True
                         break
             if found:
@@ -45,7 +50,7 @@ def test_integration():
             print(f"[!] Docker logs poll failed: {e}")
         time.sleep(1)
 
-    print(f"[✓] Discovered registration token: {reg_token}")
+    print("[✓] Discovered registration token from Conduwuit logs")
 
     print("[*] Registering dummy user via matrix client API (UIA Handshake)...")
     req = urllib.request.Request(

@@ -181,6 +181,9 @@ class MatrixStatusUpdater:
                         file=sys.stderr,
                     )
 
+            except asyncio.CancelledError:
+                # Allow task cancellation to propagate properly.
+                raise
             # pylint: disable=broad-exception-caught
             except Exception as e:  # pragma: no cover
                 print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
@@ -224,7 +227,7 @@ def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     clean_artist = "" if is_banned else artist
 
     if status == "Playing":
-        prefix = "Watching" if global_provider in VIDEO_PROVIDERS else "Listening to:"
+        prefix = "Watching:" if global_provider in VIDEO_PROVIDERS else "Listening to:"
     else:
         prefix = "Paused:"
 
@@ -374,7 +377,8 @@ async def main():
                         # Note: we must locate our own user status.
                         for event in getattr(resp.presence, "events", []):
                             if event.user_id == updater.client.user_id:
-                                updater.current_presence = event.presence
+                                async with updater.lock:
+                                    updater.current_presence = event.presence
                 except asyncio.CancelledError:
                     break
                 except (

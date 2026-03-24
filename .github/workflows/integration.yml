@@ -40,7 +40,7 @@ jobs:
           EOF
           docker run -d -t --name conduwuit \
             -p 8008:8008 \
-            -v $PWD/conduwuit.toml:/etc/conduwuit.toml \
+            -v $PWD/conduwuit.toml:/etc/conduwuit.toml:ro \
             -e CONDUWUIT_CONFIG=/etc/conduwuit.toml \
             ghcr.io/continuwuity/continuwuity:latest
 
