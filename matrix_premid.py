@@ -73,9 +73,11 @@ class MatrixStatusUpdater:
         # Determine metadata quality
         quality = 0
         if activity.startswith("Listening to:"):
-            quality = 2 if " - " in activity else 1
+            quality = 20 if " - " in activity else 10
+            if "YT Music" in activity:
+                quality += 1
         elif activity != "Idle":
-            quality = 1
+            quality = 10
 
         async with self.lock:
             # If same song but lower quality metadata, ignore it
@@ -214,9 +216,11 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                     # Calculate quality of this media source
                     quality = 0
                     if activity.startswith("Listening to:"):
-                        quality = 2 if " - " in activity else 1
+                        quality = 20 if " - " in activity else 10
+                        if "YT Music" in activity:
+                            quality += 1
                     elif activity != "Idle" and not activity.startswith("Idle"):
-                        quality = 1
+                        quality = 10
 
                     if quality > best_quality:
                         best_activity = activity
