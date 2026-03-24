@@ -14,7 +14,7 @@ init:
 	-direnv allow
 
 .PHONY: deps
-deps: $(VENV)/bin/activate ##H Install standard and dev dependencies
+deps:	##H Install standard and dev dependencies
 	$(VENV)/bin/pip install -r requirements.txt -r requirements-dev.txt
 
 INSTALL_DIR := /opt/matrix-premid
