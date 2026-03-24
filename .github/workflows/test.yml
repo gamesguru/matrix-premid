@@ -57,6 +57,8 @@ jobs:
             -p 8008:6167 \
             -e CONDUIT_SERVER_NAME=localhost \
             -e CONDUIT_ALLOW_REGISTRATION=true \
+            -e CONDUIT_DATABASE_PATH=/tmp/conduwuit \
+            -e CONDUIT_DATABASE_BACKEND=sqlite \
             ghcr.io/continuwuity/continuwuity:latest
 
           echo "Waiting for Conduwuit to be ready..."
