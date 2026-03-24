@@ -16,14 +16,13 @@ jobs:
         ports:
           - 8008:8008
         env:
-          CONDUIT_SERVER_NAME: localhost
-          CONDUIT_ALLOW_REGISTRATION: "true"
-          CONDUIT_DATABASE_PATH: /tmp/conduwuit
-          CONDUIT_DATABASE_BACKEND: sqlite
-          CONDUIT_ADDRESS: "0.0.0.0"
-          CONDUIT_PORT: 8008
-          CONDUIT_REGISTRATION_TOKEN: "ci_test_token"
-          CONDUWUIT_REGISTRATION_TOKEN: "ci_test_token"
+          CONDUWUIT_SERVER_NAME: localhost
+          CONDUWUIT_ALLOW_REGISTRATION: "true"
+          CONDUWUIT_DATABASE_PATH: /tmp/conduwuit
+          CONDUWUIT_DATABASE_BACKEND: sqlite
+          CONDUWUIT_ADDRESS: "0.0.0.0"
+          CONDUWUIT_PORT: 8008
+          CONDUWUIT_FORCE_DISABLE_FIRST_RUN_MODE: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +54,6 @@ jobs:
 
       - name: Run CI Integration Tests
         env:
-          CONDUIT_CONTAINER_ID: ${{ job.services.conduwuit.id }}
+          CONDUWUIT_CONTAINER_ID: ${{ job.services.conduwuit.id }}
         run: |
           python docker/test_integration.py

@@ -47,6 +47,28 @@ async def test_updater_update_paused():
 
 
 @pytest.mark.asyncio
+async def test_updater_update_empty():
+    """Test empty string correctly defaults to Idle status."""
+    with patch("matrix_premid.AsyncClient") as mock_client:
+        mock_client.return_value = AsyncMock()
+        updater = MatrixStatusUpdater("http://mock", "mock", "mock")
+        await updater.update("")
+        updater.client.set_presence.assert_awaited_with(
+            presence="online", status_msg="Idle"
+        )
+
+
+@pytest.mark.asyncio
+async def test_updater_update_other():
+    """Test non-music activities receive correct base quality attributes."""
+    with patch("matrix_premid.AsyncClient") as mock_client:
+        mock_client.return_value = AsyncMock()
+        updater = MatrixStatusUpdater("http://mock", "mock", "mock")
+        await updater.update("Watching: Movie", title="Movie")
+        updater.client.set_presence.assert_awaited()
+
+
+@pytest.mark.asyncio
 async def test_updater_update_exception():
     """Test updating surviving network timeouts bounds."""
     with patch("matrix_premid.AsyncClient") as mock_client:

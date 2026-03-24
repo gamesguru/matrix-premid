@@ -18,24 +18,6 @@ SEP_STR = "_||_"
 def test_integration():
     print("[i] Starting Matrix PreMiD Integration Test...")
 
-    print("[*] Fetching dynamically generated Conduwuit registration token...")
-    reg_token = "ci_test_token"
-    container_name = os.environ.get("CONDUIT_CONTAINER_ID", "conduwuit")
-    try:
-        logs = subprocess.check_output(
-            ["docker", "logs", container_name], text=True, stderr=subprocess.STDOUT
-        )
-        for line in logs.splitlines():
-            if "using the registration token" in line:
-                parts = line.split("using the registration token ")
-                if len(parts) > 1:
-                    reg_token = parts[1].split()[0]
-                    break
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        print(f"[!] Failed to fetch docker logs: {e}")
-
-    print(f"[✓] Discovered registration token: {reg_token}")
-
     # 1. Register User on local Conduit
     print("[*] Registering dummy user via matrix client API...")
     req = urllib.request.Request(
@@ -44,10 +26,7 @@ def test_integration():
             {
                 "username": "ci_user",
                 "password": "ci_password",
-                "auth": {
-                    "type": "m.login.registration_token",
-                    "token": reg_token,
-                },
+                "auth": {"type": "m.login.dummy"},
             }
         ).encode("utf-8"),
         headers={"Content-Type": "application/json"},
