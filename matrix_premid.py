@@ -326,6 +326,14 @@ async def main():
     except asyncio.CancelledError:
         pass
     finally:
+        print("Clearing Matrix status before exit...", flush=True)
+        try:
+            await asyncio.wait_for(updater.update("Idle", force=True), timeout=3.0)
+        except (  # pylint: disable=broad-exception-caught
+            Exception,
+            asyncio.CancelledError,
+        ):
+            pass
         await updater.close()
 
 
