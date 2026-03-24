@@ -33,14 +33,12 @@ def test_integration():
                 if "using the registration token" in line:
                     # Extract the registration token using a regex instead of
                     # stripping to alphanumerics so we preserve valid chars
-                    match = re.search(
-                        r"using the registration token\s+([^\s]+)", line
-                    )
+                    match = re.search(r"using the registration token\s+([^\s]+)", line)
                     if match:
                         raw_token = match.group(1)
                         # Strip ANSI trace-subscriber terminal color codes properly
                         clean_token = re.sub(r"\x1b\[[0-9;]*m", "", raw_token)
-                        # Trim only surrounding whitespace/punctuation, keep internal chars
+                        # Trim surrounding whitespace/punctuation, keep internal chars
                         reg_token = clean_token.strip(" \t\r\n\"'`.,;:()[]{}")
                         found = True
                         break
