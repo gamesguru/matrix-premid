@@ -32,7 +32,10 @@ def test_integration():
                 if "using the registration token" in line:
                     parts = line.split("using the registration token ")
                     if len(parts) > 1:
-                        reg_token = parts[1].split()[0]
+                        raw_token = parts[1].split()[0]
+                        # Purge ANSI trace-subscriber terminal color codes explicitly
+                        # so the HTTP JSON payload doesn't transmit invisible bytes!
+                        reg_token = "".join(c for c in raw_token if c.isalnum())
                         found = True
                         break
             if found:
