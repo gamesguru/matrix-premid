@@ -50,19 +50,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Start Conduit Homeserver (Integration Backend)
+      - name: Start Conduwuit Homeserver (Integration Backend)
         run: |
-          docker pull matrixconduit/matrix-conduit:latest
-          docker run -d --name conduit \
+          docker pull girlbossceo/conduwuit:latest
+          docker run -d --name conduwuit \
             -p 8008:6167 \
             -e CONDUIT_SERVER_NAME=localhost \
             -e CONDUIT_ALLOW_REGISTRATION=true \
-            matrixconduit/matrix-conduit:latest
+            girlbossceo/conduwuit:latest
 
-          echo "Waiting for Conduit to be ready..."
-          for i in {1..15}; do
-            curl -s http://localhost:8008/_matrix/client/versions > /dev/null && echo "Conduit Ready!" && break || sleep 1
+          echo "Waiting for Conduwuit to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
+              echo "Conduwuit Ready!"
+              exit 0
+            fi
+            sleep 1
           done
+          echo "Conduwuit failed to start in time! Fetching logs..."
+          docker logs conduwuit
+          exit 1
 
       - name: Run CI Integration Tests
         run: |

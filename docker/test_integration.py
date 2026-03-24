@@ -9,6 +9,8 @@ import time
 import urllib.parse
 import urllib.request
 
+SEP_STR = "_||_"
+
 # pylint: disable=missing-docstring, too-many-locals
 # pylint: disable=too-many-statements, consider-using-with
 
@@ -47,7 +49,10 @@ def test_integration():
     with open(mock_script, "w", encoding="utf-8") as f:
         f.write("#!/bin/bash\n")
         # Echo our predetermined test string to spoof what Linux MPRIS outputs
-        f.write("echo 'Playing|GitHub Actions Song|Integration Tests|firefox'\n")
+        f.write(
+            f"echo 'Playing{SEP_STR}GitHub Actions Song"
+            f"{SEP_STR}Integration Tests{SEP_STR}firefox'\n"
+        )
     os.chmod(mock_script, 0o755)
 
     # 3. Write .env inside repo root
