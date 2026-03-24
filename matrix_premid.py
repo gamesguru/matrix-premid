@@ -181,7 +181,7 @@ class MatrixStatusUpdater:
                         file=sys.stderr,
                     )
 
-            # pylint: disable-next=broad-exception-caught
+            # pylint: disable=broad-exception-caught
             except Exception as e:  # pragma: no cover
                 print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
@@ -349,7 +349,7 @@ async def main():
             )
             await updater.close()
             sys.exit(1)
-    # pylint: disable-next=broad-exception-caught
+    # pylint: disable=broad-exception-caught
     except Exception as e:  # pragma: no cover
         print(f"ERROR: Connection to homeserver failed: {e}", file=sys.stderr)
         await updater.close()

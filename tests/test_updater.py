@@ -121,12 +121,13 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
 
 @pytest.mark.asyncio
 @patch("matrix_premid.sys.exit")
+@patch("matrix_premid.shutil.which", return_value="/usr/bin/playerctl")
 @patch("matrix_premid.acquire_lock")
 @patch("matrix_premid.HOMESERVER", None)
 @patch("matrix_premid.USERNAME", None)
 @patch("matrix_premid.ACCESS_TOKEN", None)
 @patch("matrix_premid.AsyncClient")
-async def test_main_missing_env(_mock_client, _mock_lock, mock_exit):
+async def test_main_missing_env(_mock_client, _mock_lock, _mock_which, mock_exit):
     """Test main script breaks when Env details are lacking."""
     mock_exit.side_effect = SystemExit()
     try:
@@ -138,12 +139,13 @@ async def test_main_missing_env(_mock_client, _mock_lock, mock_exit):
 
 @pytest.mark.asyncio
 @patch("matrix_premid.sys.exit")
+@patch("matrix_premid.shutil.which", return_value="/usr/bin/playerctl")
 @patch("matrix_premid.acquire_lock")
 @patch("matrix_premid.HOMESERVER", "mock")
 @patch("matrix_premid.USERNAME", "@user")
 @patch("matrix_premid.ACCESS_TOKEN", "tok")
 @patch("matrix_premid.DEVICE_ID", "dev")
-async def test_main_execution_mocked_gather(_mock_lock, mock_exit):
+async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
     """Test main entrypoint setups everything cleanly resolving without errors."""
     with patch("matrix_premid.AsyncClient") as mock_client:
         mock_instance = AsyncMock()
