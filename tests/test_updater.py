@@ -117,16 +117,10 @@ async def test_main_missing_env(_mock_client, _mock_lock, mock_exit):
 @pytest.mark.asyncio
 @patch("matrix_premid.sys.exit")
 @patch("matrix_premid.acquire_lock")
-@patch.dict(
-    "os.environ",
-    {
-        "HOMESERVER": "mock",
-        "USERNAME": "@user",
-        "ACCESS_TOKEN": "tok",
-        "DEVICE_ID": "dev",
-    },
-    clear=True,
-)
+@patch("matrix_premid.HOMESERVER", "mock")
+@patch("matrix_premid.USERNAME", "@user")
+@patch("matrix_premid.ACCESS_TOKEN", "tok")
+@patch("matrix_premid.DEVICE_ID", "dev")
 async def test_main_execution_mocked_gather(_mock_lock, mock_exit):
     """Test main entrypoint setups everything cleanly resolving without errors."""
     with patch("matrix_premid.AsyncClient") as mock_client:
