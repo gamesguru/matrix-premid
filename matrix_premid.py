@@ -17,6 +17,19 @@ from dotenv import load_dotenv
 from nio import Api, AsyncClient
 from nio.responses import EmptyResponse, PresenceSetResponse
 
+PROVIDERS = {
+    "youtube music": "YouTube Music",
+    "yt music": "YouTube Music",
+    "music.youtube.com": "YouTube Music",
+    "spotify": "Spotify",
+    "netflix": "Netflix",
+    "plex": "Plex",
+    "soundcloud": "SoundCloud",
+    "last.fm": "Last.fm",
+    "twitch": "Twitch",
+    "apple music": "Apple Music",
+}
+
 # Load environment variables from .env if present
 load_dotenv()
 
@@ -144,10 +157,10 @@ class MatrixStatusUpdater:
                 print(f"ERROR: Matrix update failed: {e}", file=sys.stderr)
 
 
-def parse_mpris_data(data: str) -> tuple[str, str]:
+def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     """Parse playerctl data into (activity_string, normalized_title)."""
     data = html.unescape(data)
-    parts = [p.strip() for p in data.split("|")]
+    parts = [p.strip() for p in data.split("❖")]
     if not parts or not parts[0]:
         return "Idle", ""
 
@@ -158,24 +171,26 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
     if status not in ("Playing", "Paused"):
         return "Idle", ""
 
-    # Normalize title for quality comparison
-    norm_title = title.replace(" | YouTube Music", "").replace(" - YouTube Music", "")
-    norm_title = norm_title.strip()
+    norm_title = title.strip()
 
-    is_ytm = "YouTube Music" in data or "music.youtube.com" in data
+    for provider in set(PROVIDERS.values()):
+        for suffix in [
+            f" - {provider}",
+            f" | {provider}",
+            f" - {provider.lower()}",
+            f" | {provider.lower()}",
+        ]:
+            if norm_title.endswith(suffix):
+                norm_title = norm_title[: -len(suffix)].strip()
+            if artist.endswith(suffix):
+                artist = artist[: -len(suffix)].strip()
 
     if title == "YouTube Music" and not artist:
         return "Idle (YouTube Music)", norm_title
 
-    # Filter generic names from artist field
     banned = {"plasma-browser-integration", "firefox", "chrome", "chromium"}
     is_banned = artist.lower() in banned
-    clean_artist = "" if is_banned or artist == "YouTube Music" else artist
-    clean_artist = (
-        clean_artist.replace(" - YouTube Music", "")
-        .replace(" | YouTube Music", "")
-        .strip()
-    )
+    clean_artist = "" if is_banned else artist
 
     prefix = "Listening to:" if status == "Playing" else "Paused:"
 
@@ -184,8 +199,8 @@ def parse_mpris_data(data: str) -> tuple[str, str]:
     else:
         activity = f"{prefix} {norm_title}"
 
-    if is_ytm and "YT Music" not in activity:
-        activity += " | YT Music"
+    if global_provider and global_provider not in activity:
+        activity += f" | {global_provider}"
 
     return activity, norm_title
 
@@ -196,23 +211,30 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     best_title = ""
     best_quality = 0
 
-    global_is_ytm = any(
-        "YouTube Music" in line or "music.youtube.com" in line for line in lines
-    )
+    global_provider = ""
+    for line in lines:
+        lower_line = line.lower()
+        for key, name in PROVIDERS.items():
+            if key in lower_line:
+                if (
+                    name == "Last.fm"
+                    and global_provider
+                    and global_provider != "Last.fm"
+                ):
+                    continue
+                global_provider = name
 
     for raw in lines:
         raw = raw.strip()
         if not raw:
             continue
 
-        print(f"DEBUG: Raw data: {raw}", flush=True)
-        activity, title = parse_mpris_data(raw)
+        activity, title = parse_mpris_data(raw, global_provider)
 
-        # Calculate quality of this media source
         quality = 0
         if activity.startswith("Listening to:"):
             quality = 20 if " - " in activity else 10
-            if "YT Music" in activity:
+            if global_provider and f"| {global_provider}" in activity:
                 quality += 1
         elif activity.startswith("Paused:"):
             quality = -1
@@ -223,9 +245,6 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
             best_activity = activity
             best_title = title
             best_quality = quality
-
-    if global_is_ytm and "YT Music" not in best_activity and best_activity != "Idle":
-        best_activity += " | YT Music"
 
     return best_activity, best_title
 
@@ -244,7 +263,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                 "--all-players",
                 "metadata",
                 "--format",
-                "{{status}}|{{title}}|{{artist}}|{{playerName}}",
+                "{{status}}❖{{title}}❖{{artist}}❖{{playerName}}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )

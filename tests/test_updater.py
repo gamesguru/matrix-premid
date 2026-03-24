@@ -75,7 +75,7 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
     """Test MPRIS subprocess parsing defaults best output cleanly."""
     mock_proc = AsyncMock()
     mock_proc.communicate.side_effect = [
-        (b"Playing|Awesome Song|Awesome Artist|firefox\\n", b""),
+        ("Playing❖Awesome Song❖Awesome Artist❖firefox\n".encode("utf-8"), b""),
         Exception("Break loop"),
     ]
     mock_exec.return_value = mock_proc
