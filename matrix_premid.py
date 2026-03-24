@@ -265,7 +265,8 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                 "--all-players",
                 "metadata",
                 "--format",
-                f"{{{{status}}}}{SEP_STR}{{{{title}}}}{SEP_STR}{{{{artist}}}}{SEP_STR}{{{{playerName}}}}",  # noqa: E501
+                f"{{{{status}}}}{SEP_STR}{{{{title}}}}{SEP_STR}"
+                f"{{{{artist}}}}{SEP_STR}{{{{playerName}}}}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )

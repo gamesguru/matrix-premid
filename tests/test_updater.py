@@ -76,10 +76,8 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
     mock_proc = AsyncMock()
     mock_proc.communicate.side_effect = [
         (
-            f"Playing{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}firefox\n".encode(  # noqa: E501
-                "utf-8"
-            ),
-            b"",
+            f"Playing{SEP_STR}Awesome Song{SEP_STR}"
+            f"Awesome Artist{SEP_STR}firefox\n".encode("utf-8"),
         ),
         Exception("Break loop"),
     ]
