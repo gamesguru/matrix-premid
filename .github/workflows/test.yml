@@ -1,5 +1,5 @@
 ---
-name: Test and Lint
+name: Test
 
 on:
   push:
@@ -33,46 +33,3 @@ jobs:
 
       - name: Run Unit Tests
         run: make test
-
-  integration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Start Conduwuit Homeserver (Integration Backend)
-        run: |
-          docker pull ghcr.io/continuwuity/continuwuity:latest
-          docker run -d --name conduwuit \
-            -p 8008:6167 \
-            -e CONDUIT_SERVER_NAME=localhost \
-            -e CONDUIT_ALLOW_REGISTRATION=true \
-            -e CONDUIT_DATABASE_PATH=/tmp/conduwuit \
-            -e CONDUIT_DATABASE_BACKEND=sqlite \
-            ghcr.io/continuwuity/continuwuity:latest
-
-          echo "Waiting for Conduwuit to be ready..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
-              echo "Conduwuit Ready!"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Conduwuit failed to start in time! Fetching logs..."
-          docker logs conduwuit
-          exit 1
-
-      - name: Run CI Integration Tests
-        run: |
-          python docker/test_integration.py

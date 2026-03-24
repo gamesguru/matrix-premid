@@ -1,0 +1,56 @@
+---
+name: Test
+
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+    branches: ["master", "main"]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      conduwuit:
+        image: ghcr.io/continuwuity/continuwuity:latest
+        ports:
+          - 8008:8008
+        env:
+          CONDUIT_SERVER_NAME: localhost
+          CONDUIT_ALLOW_REGISTRATION: "true"
+          CONDUIT_DATABASE_PATH: /tmp/conduwuit
+          CONDUIT_DATABASE_BACKEND: sqlite
+          CONDUIT_ADDRESS: "0.0.0.0"
+          CONDUIT_PORT: 8008
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          make init
+          make deps
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
+
+      - name: Wait for Conduwuit to be ready
+        run: |
+          echo "Waiting for Conduwuit to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8008/_matrix/client/versions > /dev/null; then
+              echo "Conduwuit Ready!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Conduwuit failed to start in time!"
+          exit 1
+
+      - name: Run CI Integration Tests
+        run: |
+          python docker/test_integration.py
