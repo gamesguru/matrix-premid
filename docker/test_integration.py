@@ -18,6 +18,31 @@ SEP_STR = "_||_"
 def test_integration():
     print("[i] Starting Matrix PreMiD Integration Test...")
 
+    print("[*] Fetching dynamically generated Conduwuit registration token...")
+    reg_token = "ci_test_token_123"
+
+    print("[~] Polling Docker logs until Conduwuit flushes the Welcome message...")
+    for _ in range(15):
+        try:
+            logs = subprocess.check_output(
+                ["docker", "logs", "conduwuit"], text=True, stderr=subprocess.STDOUT
+            )
+            found = False
+            for line in logs.splitlines():
+                if "using the registration token" in line:
+                    parts = line.split("using the registration token ")
+                    if len(parts) > 1:
+                        reg_token = parts[1].split()[0]
+                        found = True
+                        break
+            if found:
+                break
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            print(f"[!] Docker logs poll failed: {e}")
+        time.sleep(1)
+
+    print(f"[✓] Discovered registration token: {reg_token}")
+
     print("[*] Registering dummy user via matrix client API (UIA Handshake)...")
     req = urllib.request.Request(
         "http://localhost:8008/_matrix/client/v3/register",
@@ -51,7 +76,7 @@ def test_integration():
                 "password": "ci_password",
                 "auth": {
                     "type": "m.login.registration_token",
-                    "token": "ci_test_token_123",
+                    "token": reg_token,
                     "session": session,
                 },
             }

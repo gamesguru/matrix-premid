@@ -37,7 +37,7 @@ jobs:
           port = 8008
           registration_token = "ci_test_token_123"
           EOF
-          docker run -d --name conduwuit \
+          docker run -d -t --name conduwuit \
             -p 8008:8008 \
             -v $PWD/conduwuit.toml:/etc/conduwuit.toml \
             -e CONDUWUIT_CONFIG=/etc/conduwuit.toml \
