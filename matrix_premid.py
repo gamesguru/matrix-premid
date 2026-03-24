@@ -8,6 +8,7 @@ native Linux MPRIS (playerctl) events.
 
 import asyncio
 import fcntl
+import html
 import logging
 import os
 import sys
@@ -141,6 +142,7 @@ class MatrixStatusUpdater:
 
 def parse_mpris_data(data: str) -> tuple[str, str]:
     """Parse playerctl data into (activity_string, normalized_title)."""
+    data = html.unescape(data)
     parts = [p.strip() for p in data.split("|")]
     if not parts or not parts[0]:
         return "Idle", ""
