@@ -129,21 +129,17 @@ def test_integration():
         )
     os.chmod(mock_script, 0o755)
 
-    # 3. Write .env inside repo root
-    # Note: tests are run from the project root in CI
-    print("[*] Writing local configuration .env file...")
-    with open(".env", "w", encoding="utf-8") as f:
-        f.write("HOMESERVER=http://localhost:8008\n")
-        f.write(f"USERNAME={user_id}\n")
-        f.write(f"ACCESS_TOKEN={token}\n")
-        f.write(f"DEVICE_ID={device_id}\n")
-
     # 4. Start matrix_premid.py
     print("[i] Starting matrix_premid.py background daemon...")
     env = os.environ.copy()
     # Prepend mock_dir so subprocess picks up our fake playerctl instead of real one
     env["PATH"] = f"{mock_dir}:{env['PATH']}"
     env["PREMID_LOCK_FILE"] = os.path.join(mock_dir, "test.lock")
+    env["HOMESERVER"] = "http://localhost:8008"
+    env["USERNAME"] = user_id
+    env["ACCESS_TOKEN"] = token
+    env["DEVICE_ID"] = device_id
+
     proc = subprocess.Popen([sys.executable, "matrix_premid.py"], env=env)
 
     # 5. Wait for loop to pick up playerctl, parse, and send to homeserver

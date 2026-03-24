@@ -117,7 +117,9 @@ class MatrixStatusUpdater:
                 return
 
             if is_new:
-                print(f"Matrix Status -> {activity}", flush=True)
+                print(
+                    f"Matrix Status [{self.current_presence}] -> {activity}", flush=True
+                )
                 self.last_activity = activity
                 self.last_title = title
                 self.last_quality = quality
@@ -377,6 +379,13 @@ async def main():
                         for event in getattr(resp.presence, "events", []):
                             if event.user_id == updater.client.user_id:
                                 async with updater.lock:
+                                    if updater.current_presence != event.presence:
+                                        print(
+                                            f"Detected Native Presence: "
+                                            f"{updater.current_presence} "
+                                            f"-> {event.presence}",
+                                            flush=True,
+                                        )
                                     updater.current_presence = event.presence
                 except asyncio.CancelledError:
                     break
