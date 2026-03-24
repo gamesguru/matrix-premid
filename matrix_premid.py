@@ -176,7 +176,7 @@ class MatrixStatusUpdater:
                 )
                 if isinstance(resp3, ErrorResponse):  # pragma: no cover
                     print(
-                        "ERROR: account_data failed:"
+                        "ERROR: account_data failed: "
                         f"{getattr(resp3, 'message', resp3)}",
                         file=sys.stderr,
                     )
