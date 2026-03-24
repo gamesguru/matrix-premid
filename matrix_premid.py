@@ -75,6 +75,8 @@ DEVICE_ID = os.environ.get("DEVICE_ID", "")
 class MatrixStatusUpdater:
     """Manages Matrix status updates with state tracking and error handling."""
 
+    # pylint: disable=too-many-instance-attributes
+
     def __init__(self, homeserver, username, access_token, device_id=None):
         self.client = AsyncClient(homeserver, username)
         self.client.access_token = access_token
@@ -88,6 +90,7 @@ class MatrixStatusUpdater:
         self.current_presence = "online"  # Default fallback
         self.idle_strikes = 0
         self.lock = asyncio.Lock()
+        self._update_task = None
 
     async def close(self):
         """Close the Matrix client session."""
@@ -148,87 +151,113 @@ class MatrixStatusUpdater:
                 self.last_title = title
                 self.last_quality = quality
 
-            try:
-                # 1. Standard Presence
-                if is_exit:
-                    resp1 = await self.client.set_presence(
-                        presence="offline", status_msg=""
-                    )
-                else:
-                    pres_msg = activity if activity != "Idle" else ""
-                    resp1 = await self.client.set_presence(
-                        presence=self.current_presence, status_msg=pres_msg
-                    )
-                if isinstance(resp1, ErrorResponse):  # pragma: no cover
-                    print(
-                        "ERROR: set_presence failed: "
-                        f"{getattr(resp1, 'message', resp1)}",
-                        file=sys.stderr,
-                    )
+            if self._update_task and not self._update_task.done():
+                self._update_task.cancel()
 
-                path = ["presence", self.client.user_id, "status"]
-                # pylint: disable=protected-access
-                full_path = Api._build_path(
-                    path, {"access_token": self.client.access_token}
+            async def debounced_send():
+                if not force and not is_exit:
+                    # Wait 2 seconds to absorb rapid metadata shifts
+                    # e.g. "Watching: X" -> "Listening to: X - Y"
+                    await asyncio.sleep(2.0)
+                await self._send_update(activity, is_exit)
+
+            self._update_task = asyncio.create_task(debounced_send())
+
+    async def _send_update(self, activity: str, is_exit: bool = False):
+        try:
+            # 1. Standard Presence
+            if is_exit:
+                pres_state = "offline"
+                pres_msg = ""
+            else:
+                pres_state = self.current_presence
+                pres_msg = activity if activity != "Idle" else ""
+
+            print(
+                f"DEBUG: Request 1/3 - set_presence(presence='{pres_state}', "
+                f"status_msg='{pres_msg}')"
+            )
+            resp1 = await self.client.set_presence(
+                presence=pres_state, status_msg=pres_msg
+            )
+            if isinstance(resp1, ErrorResponse):  # pragma: no cover
+                print(
+                    "ERROR: set_presence failed: "
+                    f"{getattr(resp1, 'message', resp1)}",
+                    file=sys.stderr,
                 )
 
-                if is_exit:
-                    payload = {"presence": "offline"}
-                else:
-                    payload = {
-                        "presence": self.current_presence,
-                        "currently_active": True,
-                    }
-                    if activity and activity != "Idle":
-                        payload["status_msg"] = activity
+            path = ["presence", self.client.user_id, "status"]
+            # pylint: disable=protected-access
+            full_path = Api._build_path(
+                path, {"access_token": self.client.access_token}
+            )
 
-                resp2 = await self.client._send(
-                    PresenceSetResponse,
-                    "PUT",
-                    full_path,
-                    data=Api.to_json(payload),
-                )
-                if isinstance(resp2, ErrorResponse):  # pragma: no cover
-                    print(
-                        "ERROR: custom presence failed: "
-                        f"{getattr(resp2, 'message', resp2)}",
-                        file=sys.stderr,
-                    )
+            if is_exit:
+                payload = {"presence": "offline"}
+            else:
+                payload = {
+                    "presence": self.current_presence,
+                    "currently_active": True,
+                }
+                if activity and activity != "Idle":
+                    payload["status_msg"] = activity
 
-                # 2. Element Custom Status
-                path = [
-                    "user",
-                    self.client.user_id,
-                    "account_data",
-                    "im.vector.user_status",
-                ]
-                # pylint: disable=protected-access
-                full_path = Api._build_path(
-                    path, {"access_token": self.client.access_token}
+            print("DEBUG: Request 2/3 - custom PUT presence (currently_active=True)")
+            resp2 = await self.client._send(
+                PresenceSetResponse,
+                "PUT",
+                full_path,
+                data=Api.to_json(payload),
+            )
+            if isinstance(resp2, ErrorResponse):  # pragma: no cover
+                print(
+                    "ERROR: custom presence failed: "
+                    f"{getattr(resp2, 'message', resp2)}",
+                    file=sys.stderr,
                 )
-                content = (
-                    {"status": activity}
-                    if activity and activity != "Idle" and not is_exit
-                    else {}
-                )
-                resp3 = await self.client._send(
-                    EmptyResponse, "PUT", full_path, data=Api.to_json(content)
-                )
-                if isinstance(resp3, ErrorResponse):  # pragma: no cover
-                    print(
-                        "ERROR: account_data failed: "
-                        f"{getattr(resp3, 'message', resp3)}",
-                        file=sys.stderr,
-                    )
 
-            # pylint: disable=broad-exception-caught
-            except Exception as e:  # pragma: no cover
-                print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
+            # 2. Element Custom Status
+            path = [
+                "user",
+                self.client.user_id,
+                "account_data",
+                "im.vector.user_status",
+            ]
+            # pylint: disable=protected-access
+            full_path = Api._build_path(
+                path, {"access_token": self.client.access_token}
+            )
+            content = (
+                {"status": activity}
+                if activity and activity != "Idle" and not is_exit
+                else {}
+            )
+
+            print("DEBUG: Request 3/3 - PUT account_data (im.vector.user_status)")
+            resp3 = await self.client._send(
+                EmptyResponse, "PUT", full_path, data=Api.to_json(content)
+            )
+            if isinstance(resp3, ErrorResponse):  # pragma: no cover
+                print(
+                    "ERROR: account_data failed: "
+                    f"{getattr(resp3, 'message', resp3)}",
+                    file=sys.stderr,
+                )
+
+        except asyncio.CancelledError:
+            pass
+        # pylint: disable=broad-exception-caught
+        except Exception as e:  # pragma: no cover
+            print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
 
 def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     """Parse playerctl data into (activity_string, normalized_title)."""
-    data = html.unescape(data)
+    # Browsers often double-escape MPRIS metadata, so we unescape aggressively
+    data = html.unescape(html.unescape(data))
+    data = data.replace("&quot;", '"').replace("&apos;", "'").replace("&#39;", "'")
+
     parts = [p.strip() for p in data.split(SEP_STR)]
     if not parts or not parts[0]:
         return "Idle", ""
@@ -389,44 +418,20 @@ async def main():
         async def sync_loop():
             while True:
                 try:
-                    # Use a bare sync to passively ingest account state
-                    resp = await updater.client.sync(timeout=30)
+                    # Sync with set_presence="online" to brutally override Nheko
+                    # hiding the 'Busy' (dnd) state.
+                    resp = await updater.client.sync(timeout=30, set_presence="online")
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
                         msg = getattr(resp, "message", resp)
                         print(f"ERROR: sync failed: {msg}", file=sys.stderr)
                         if getattr(resp, "status_code", 0) in (401, 403):
                             print("ERROR: Unauthorized. Exiting.", file=sys.stderr)
-                            # Cannot exit inside async gather without raising,
-                            # but we can raise CancelledError or stop
+                            # Cannot exit inside async gather without raising
                             raise asyncio.CancelledError
-                    elif hasattr(resp, "presence") and resp.presence:
-                        # Extract the user's native presence state
-                        # so we stop blindly overriding 'busy'/'dnd'.
-                        # Note: we must locate our own user status.
-                        for event in getattr(resp.presence, "events", []):
-                            if event.user_id == updater.client.user_id:
-                                async with updater.lock:
-                                    safe_presence = (
-                                        event.presence
-                                        if event.presence
-                                        in (
-                                            "online",
-                                            "offline",
-                                            "unavailable",
-                                            "dnd",
-                                            "hidden",
-                                        )
-                                        else "online"
-                                    )
-
-                                    if updater.current_presence != safe_presence:
-                                        print(
-                                            f"Detected Native Presence: "
-                                            f"{updater.current_presence} "
-                                            f"-> {safe_presence}",
-                                            flush=True,
-                                        )
-                                    updater.current_presence = safe_presence
+                    # We no longer read event.presence to inherit 'dnd'/'busy'
+                    # because the user explicitly wants to be forced Online.
+                    if updater.current_presence != "online":
+                        updater.current_presence = "online"
                 except asyncio.CancelledError:
                     break
                 except (
@@ -442,8 +447,9 @@ async def main():
         async def update_loop():
             while True:
                 try:
-                    await updater.update(updater.last_activity, force=True)
-                    await asyncio.sleep(15)
+                    # Removed the force=True update spam
+                    # We just need to sync to stay online
+                    await asyncio.sleep(60)
                 except asyncio.CancelledError:
                     break
                 except (
