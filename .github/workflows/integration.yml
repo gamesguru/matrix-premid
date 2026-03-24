@@ -22,7 +22,7 @@ jobs:
           CONDUWUIT_DATABASE_BACKEND: sqlite
           CONDUWUIT_ADDRESS: "0.0.0.0"
           CONDUWUIT_PORT: 8008
-          CONDUWUIT_FORCE_DISABLE_FIRST_RUN_MODE: "true"
+          CONDUWUIT_REGISTRATION_TOKEN: "ci_test_token_123"
 
     steps:
       - uses: actions/checkout@v4

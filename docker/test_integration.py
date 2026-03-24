@@ -18,15 +18,42 @@ SEP_STR = "_||_"
 def test_integration():
     print("[i] Starting Matrix PreMiD Integration Test...")
 
-    # 1. Register User on local Conduit
-    print("[*] Registering dummy user via matrix client API...")
+    print("[*] Registering dummy user via matrix client API (UIA Handshake)...")
+    req = urllib.request.Request(
+        "http://localhost:8008/_matrix/client/v3/register",
+        data=json.dumps({"username": "ci_user", "password": "ci_password"}).encode(
+            "utf-8"
+        ),
+        headers={"Content-Type": "application/json"},
+    )
+    session = None
+    try:
+        with urllib.request.urlopen(req) as resp:
+            pass  # Expected to fail with 401 Unauthorized for UIA
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            res = json.loads(e.read().decode())
+            session = res.get("session")
+        else:
+            print("Initial registration handshake failed non-401:", e.read().decode())
+            sys.exit(1)
+
+    if not session:
+        print("[!] Failed to obtain registration UIA session!")
+        sys.exit(1)
+
+    print(f"[*] Proceeding with UIA session: {session} ...")
     req = urllib.request.Request(
         "http://localhost:8008/_matrix/client/v3/register",
         data=json.dumps(
             {
                 "username": "ci_user",
                 "password": "ci_password",
-                "auth": {"type": "m.login.dummy"},
+                "auth": {
+                    "type": "m.login.registration_token",
+                    "token": "ci_test_token_123",
+                    "session": session,
+                },
             }
         ).encode("utf-8"),
         headers={"Content-Type": "application/json"},

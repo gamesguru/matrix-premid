@@ -19,7 +19,8 @@ init:
 deps:	##H Install standard and dev dependencies
 	$(VENV)/bin/pip install -r requirements.txt -r requirements-dev.txt
 
-INSTALL_DIR := /opt/matrix-premid
+# Default install location
+INSTALL_DIR ?= /opt/matrix-premid
 
 .PHONY: install
 install: ##H Install dependencies, env, binary, and systemd service to /opt (requires sudo)
