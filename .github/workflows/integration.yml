@@ -1,5 +1,5 @@
 ---
-name: Test
+name: E2E
 
 on:
   push:

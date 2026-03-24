@@ -1,5 +1,5 @@
 ---
-name: Test
+name: PR Checks
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: ["master", "main"]
 
 jobs:
-  unit:
+  unittest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
