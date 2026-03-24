@@ -1,12 +1,14 @@
 SHELL=/bin/bash
-VENV=.venv
-PYTHON=$(VENV)/bin/python
-PIP=$(VENV)/bin/pip
 .DEFAULT_GOAL=_help
 
 # [ENUM] Styling / Colors
 STYLE_CYAN := $(shell tput setaf 6 2>/dev/null || echo -e "\033[36m")
 STYLE_RESET := $(shell tput sgr0 2>/dev/null || echo -e "\033[0m")
+
+# Default virtual environment
+VENV=.venv
+PYTHON=$(VENV)/bin/python
+PIP=$(VENV)/bin/pip
 
 .PHONY: init
 init:
@@ -18,10 +20,6 @@ deps:	##H Install standard and dev dependencies
 	$(VENV)/bin/pip install -r requirements.txt -r requirements-dev.txt
 
 INSTALL_DIR := /opt/matrix-premid
-
-.PHONY: test
-test: ##H Run unit tests with coverage
-	$(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
 
 .PHONY: install
 install: ##H Install dependencies, env, binary, and systemd service to /opt (requires sudo)
@@ -42,9 +40,35 @@ install: ##H Install dependencies, env, binary, and systemd service to /opt (req
 	sudo systemctl enable matrix-premid.service
 	@echo "Installed to $(INSTALL_DIR) and service created."
 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Unit tests and local running
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.PHONY: test
+test: ##H Run unit tests with coverage
+	$(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
+
 .PHONY: run
 run: deps ##H Run the application locally
 	$(PYTHON) matrix_premid.py
+
+.PHONY: restart
+restart: ##H Restart the background systemd service
+	sudo systemctl restart matrix-premid.service
+
+.PHONY: log
+log:	##H Watch journalctl logs of installed/running service
+	sudo journalctl -fu matrix-premid
+
+.PHONY: stop
+stop: ##H Stop the background systemd service
+	sudo systemctl stop matrix-premid.service
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Linting, formatting
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 LINT_LOCS_PY = $$(git ls-files '*.py')
@@ -69,18 +93,6 @@ clean: ##H Clean the virtual environment and caches
 	find . -type f -name '*.pyc' -delete
 	find . -type d -name '__pycache__' -exec rm -rf {} +
 	rm -rf .mypy_cache
-
-.PHONY: restart
-restart: ##H Restart the background systemd service
-	sudo systemctl restart matrix-premid.service
-
-.PHONY: log
-log:	##H Watch journalctl logs of installed/running service
-	sudo journalctl -fu matrix-premid
-
-.PHONY: stop
-stop: ##H Stop the background systemd service
-	sudo systemctl stop matrix-premid.service
 
 .PHONY: _help
 _help: ##H Show this help, list available targets
