@@ -52,9 +52,9 @@ async def test_updater_update_empty():
     with patch("matrix_premid.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "mock", "mock")
-        await updater.update("")
+        await updater.update("", force=True)
         updater.client.set_presence.assert_awaited_with(
-            presence="online", status_msg="Idle"
+            presence="online", status_msg=""
         )
 
 

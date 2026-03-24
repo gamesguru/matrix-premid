@@ -12,6 +12,7 @@ import html
 import logging
 import os
 import shutil
+import signal
 import sys
 
 from dotenv import load_dotenv
@@ -140,8 +141,9 @@ class MatrixStatusUpdater:
 
             try:
                 # 1. Standard Presence
+                pres_msg = activity if activity != "Idle" else ""
                 resp1 = await self.client.set_presence(
-                    presence=self.current_presence, status_msg=activity
+                    presence=self.current_presence, status_msg=pres_msg
                 )
                 if isinstance(resp1, ErrorResponse):  # pragma: no cover
                     print(
@@ -463,7 +465,13 @@ async def main():
 
 
 if __name__ == "__main__":
+
+    def _sigterm_handler(_signo, _stack_frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, asyncio.CancelledError):
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         pass
