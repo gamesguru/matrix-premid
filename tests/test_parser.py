@@ -1,6 +1,6 @@
 """Unit tests for the project."""
 
-from matrix_premid import SEP_STR, _get_best_mpris_activity, parse_mpris_data
+from matrix_premid.__main__ import SEP_STR, _get_best_mpris_activity, parse_mpris_data
 
 # pylint: disable=missing-docstring,line-too-long
 
@@ -90,12 +90,9 @@ def test_get_best_mpris_activity_picks_highest_quality():
     ]
     activity, title = _get_best_mpris_activity(lines)
     # The Awesome Song has an artist, giving it quality=20
-    # In first pass, it won't have provider unless title matches.
-    # But Awesome Song doesn't match "YouTube Music".
-    # Wait, if we don't have provider, quality is just 20.
-    # If we DO have provider (via inheritance), quality is 21.
     assert "Awesome Song" in activity
     assert "Awesome Artist" in activity
+    assert title == "Awesome Song"
 
 
 def test_get_best_mpris_activity_inherits_youtube_music_across_players():

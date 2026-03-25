@@ -1,13 +1,18 @@
 """Tests for MatrixStatusUpdater and monitor_mpris."""
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,no-member
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from matrix_premid import SEP_STR, MatrixStatusUpdater, main, monitor_mpris
+from matrix_premid.__main__ import (
+    SEP_STR,
+    MatrixStatusUpdater,
+    main,
+    monitor_mpris,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -19,7 +24,7 @@ def patch_sleep():
 
 def test_updater_init():
     """Test the updater initializes the nio client correctly."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
         mock_client.assert_called_with("http://mock", "@test:mock")
@@ -29,7 +34,7 @@ def test_updater_init():
 @pytest.mark.asyncio
 async def test_updater_update():
     """Test pushing presence state to the Matrix room."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
         await updater.update("Listening to: Song | YT Music")
@@ -44,7 +49,7 @@ async def test_updater_update():
 @pytest.mark.asyncio
 async def test_updater_update_paused():
     """Test a paused song yields presence correctly."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("mock", "mock", "mock")
         await updater.update("Paused: Song - Artist | YT Music")
@@ -55,7 +60,7 @@ async def test_updater_update_paused():
 @pytest.mark.asyncio
 async def test_updater_update_empty():
     """Test empty string correctly defaults to Idle status."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "mock", "mock")
         await updater.update("", force=True)
@@ -66,7 +71,7 @@ async def test_updater_update_empty():
 @pytest.mark.asyncio
 async def test_updater_update_other():
     """Test non-music activities receive correct base quality attributes."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "mock", "mock")
         await updater.update("Watching: Movie", title="Movie")
@@ -77,7 +82,7 @@ async def test_updater_update_other():
 @pytest.mark.asyncio
 async def test_updater_update_exception():
     """Test updating surviving network timeouts bounds."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("mock", "mock", "mock")
         updater.client._send.side_effect = asyncio.TimeoutError()
@@ -89,7 +94,7 @@ async def test_updater_update_exception():
 @pytest.mark.asyncio
 async def test_updater_update_same_song_ignored():
     """Test ignoring unchanged song status strings."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
         updater.last_activity = "Listening to: Song"
@@ -99,7 +104,7 @@ async def test_updater_update_same_song_ignored():
 
 
 @pytest.mark.asyncio
-@patch("matrix_premid.asyncio.create_subprocess_exec")
+@patch("matrix_premid.__main__.asyncio.create_subprocess_exec")
 async def test_monitor_mpris_picks_best_activity(mock_exec):
     """Test MPRIS subprocess parsing defaults best output cleanly."""
     mock_proc = AsyncMock()
@@ -113,7 +118,7 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
     ]
     mock_exec.return_value = mock_proc
 
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("mock", "mock", "mock")
         updater.update = AsyncMock()
@@ -127,13 +132,13 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
 
 
 @pytest.mark.asyncio
-@patch("matrix_premid.sys.exit")
-@patch("matrix_premid.shutil.which", return_value="/usr/bin/playerctl")
-@patch("matrix_premid.acquire_lock")
-@patch("matrix_premid.HOMESERVER", None)
-@patch("matrix_premid.USERNAME", None)
-@patch("matrix_premid.ACCESS_TOKEN", None)
-@patch("matrix_premid.AsyncClient")
+@patch("matrix_premid.__main__.sys.exit")
+@patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
+@patch("matrix_premid.__main__.acquire_lock")
+@patch("matrix_premid.__main__.HOMESERVER", None)
+@patch("matrix_premid.__main__.USERNAME", None)
+@patch("matrix_premid.__main__.ACCESS_TOKEN", None)
+@patch("matrix_premid.__main__.AsyncClient")
 async def test_main_missing_env(_mock_client, _mock_lock, _mock_which, mock_exit):
     """Test main script breaks when Env details are lacking."""
     mock_exit.side_effect = SystemExit()
@@ -146,16 +151,16 @@ async def test_main_missing_env(_mock_client, _mock_lock, _mock_which, mock_exit
 
 
 @pytest.mark.asyncio
-@patch("matrix_premid.sys.exit")
-@patch("matrix_premid.shutil.which", return_value="/usr/bin/playerctl")
-@patch("matrix_premid.acquire_lock")
-@patch("matrix_premid.HOMESERVER", "mock")
-@patch("matrix_premid.USERNAME", "@user")
-@patch("matrix_premid.ACCESS_TOKEN", "tok")
-@patch("matrix_premid.DEVICE_ID", "dev")
+@patch("matrix_premid.__main__.sys.exit")
+@patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
+@patch("matrix_premid.__main__.acquire_lock")
+@patch("matrix_premid.__main__.HOMESERVER", "mock")
+@patch("matrix_premid.__main__.USERNAME", "@user")
+@patch("matrix_premid.__main__.ACCESS_TOKEN", "tok")
+@patch("matrix_premid.__main__.DEVICE_ID", "dev")
 async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
     """Test main entrypoint setups everything cleanly resolving without errors."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_instance = AsyncMock()
         mock_client.return_value = mock_instance
 
@@ -169,13 +174,16 @@ async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
         # Emit native valid presence payload once, then gracefully exit loop
         mock_instance.sync.side_effect = [mock_resp, asyncio.CancelledError()]
 
-        with patch("matrix_premid.asyncio.Event.wait", new_callable=AsyncMock):
+        with patch("matrix_premid.__main__.asyncio.Event.wait", new_callable=AsyncMock):
             with patch(
-                "matrix_premid.MatrixStatusUpdater.update", new_callable=AsyncMock
+                "matrix_premid.__main__.MatrixStatusUpdater.update",
+                new_callable=AsyncMock,
             ) as mock_update:
                 mock_update.side_effect = asyncio.CancelledError()
 
-                with patch("matrix_premid.asyncio.create_subprocess_exec") as mock_exec:
+                with patch(
+                    "matrix_premid.__main__.asyncio.create_subprocess_exec"
+                ) as mock_exec:
                     mock_proc = AsyncMock()
                     mock_proc.communicate.side_effect = asyncio.CancelledError()
                     mock_exec.return_value = mock_proc
@@ -189,7 +197,7 @@ async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
 @pytest.mark.asyncio
 async def test_updater_close():
     """Test shutdown cleanup of updater client sockets."""
-    with patch("matrix_premid.AsyncClient") as mock_client:
+    with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
         await updater.close()
@@ -197,13 +205,39 @@ async def test_updater_close():
 
 
 @pytest.mark.asyncio
+async def test_main_debug_flag():
+    """Test the --debug flag in main sets log level."""
+    with (
+        patch("sys.argv", ["matrix_premid.py", "--debug"]),
+        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
+        patch("matrix_premid.__main__.logging.getLogger") as mock_get_logger,
+        patch("matrix_premid.__main__.acquire_lock") as mock_lock,
+    ):
+
+        mock_updater = AsyncMock()
+        mock_updater_class.return_value = mock_updater
+        mock_nio_logger = MagicMock()
+        mock_get_logger.return_value = mock_nio_logger
+        mock_lock.return_value = MagicMock()
+
+        # Mocking wait/gather to exit immediately
+        with (
+            patch("matrix_premid.__main__.asyncio.Event.wait", new_callable=AsyncMock),
+            patch("matrix_premid.__main__.asyncio.gather", new_callable=AsyncMock),
+        ):
+            await main()
+
+        mock_get_logger.assert_called_with("nio")
+        mock_nio_logger.setLevel.assert_called_with(10)  # logging.DEBUG
+
+
+@pytest.mark.asyncio
 async def test_main_unset_flag():
     """Test the manual --unset flag in main."""
-    from matrix_premid import main
-
-    with patch("sys.argv", ["matrix_premid.py", "--unset"]), patch(
-        "matrix_premid.MatrixStatusUpdater"
-    ) as mock_updater_class:
+    with (
+        patch("sys.argv", ["matrix_premid.py", "--unset"]),
+        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
+    ):
         mock_updater = AsyncMock()
         mock_updater_class.return_value = mock_updater
 

@@ -75,22 +75,27 @@ stop: ##H Stop the background systemd service
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-LINT_LOCS_PY = $$(git ls-files '*.py')
+LINT_LOCS_PY = $$(git ls-files 'src/**/*.py' 'tests/*.py')
 
 .PHONY: format
 format: ##H Format the code using Black
-	$(VENV)/bin/black $(LINT_LOCS_PY)
-	$(VENV)/bin/isort $(LINT_LOCS_PY)
+	$(VENV)/bin/black src/ tests/
+	$(VENV)/bin/isort src/ tests/
 	-prettier -w .
 	-pre-commit run --all-files
 
 
 .PHONY: lint
 lint: ##H Lint the code using Flake8
-	flake8 matrix_premid.py
+	flake8 src/
 	flake8 --max-line-length=100 tests/
-	pylint $(LINT_LOCS_PY)
-	ruff check $(LINT_LOCS_PY)
+	pylint src/ tests/
+	ruff check src/ tests/
+
+.PHONY: build
+build: ##H Build the package (requires hatch)
+	$(VENV)/bin/pip install hatch
+	$(VENV)/bin/hatch build
 
 .PHONY: clean
 clean: ##H Clean the virtual environment and caches

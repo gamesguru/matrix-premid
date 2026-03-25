@@ -1,3 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "matrix-premid"
+version = "0.1.1"
+description = "Matrix Presence Updater based on MPRIS events"
+readme = "README.rst"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+dependencies = [
+    "matrix-nio>=0.25.2",
+    "python-dotenv>=1.2.2",
+    "argcomplete>=3.5.3"
+]
+
+[project.scripts]
+matrix-premid = "matrix_premid.__main__:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/matrix_premid"]
+
 [tool.black]
 line-length = 88
 
@@ -7,7 +33,8 @@ line_length = 88
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=matrix_premid --cov-report=term-missing"
+pythonpath = ["src"]
+addopts = "--cov=matrix_premid --cov-report=term-missing tests/"
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
@@ -16,8 +43,8 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-command_line = "-m pytest -svv"
-source = ["matrix_premid.py"]
+source = ["matrix_premid"]
+branch = true
 
 [tool.coverage.report]
 fail_under = 85.00

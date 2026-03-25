@@ -8,11 +8,6 @@ native Linux MPRIS (playerctl) events.
 """
 
 import argparse
-
-try:
-    import argcomplete
-except ImportError:
-    argcomplete = None
 import asyncio
 import fcntl
 import html
@@ -22,6 +17,7 @@ import shutil
 import signal
 import sys
 
+import argcomplete
 from dotenv import load_dotenv
 from nio import Api, AsyncClient
 from nio.responses import EmptyResponse, ErrorResponse, PresenceSetResponse
@@ -44,8 +40,17 @@ VIDEO_PROVIDERS = {"Netflix", "Plex", "Twitch", "YouTube"}
 
 SEP_STR = "_||_"
 
-# Load environment variables from .env if present
-load_dotenv()
+# Load environment variables
+_script_dir = os.path.dirname(os.path.realpath(__file__))
+_local_env = os.path.join(_script_dir, ".env")
+_config_env = os.path.expanduser("~/.config/matrix-premid/.env")
+
+if os.path.exists(_local_env):
+    load_dotenv(dotenv_path=_local_env)
+elif os.path.exists(_config_env):
+    load_dotenv(dotenv_path=_config_env)
+else:
+    load_dotenv()
 
 # Lock file to prevent multiple instances
 LOCK_FILE = os.environ.get("PREMID_LOCK_FILE", "/tmp/matrix-premid.lock")
@@ -69,6 +74,10 @@ HOMESERVER = os.environ.get("HOMESERVER", "")
 USERNAME = os.environ.get("USERNAME", "")
 ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
 DEVICE_ID = os.environ.get("DEVICE_ID", "")
+# Timeout (in seconds) before actually clearing the Matrix status when idle
+IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", "15"))
+# Polling interval (in seconds) for MPRIS events
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))
 
 
 class MatrixStatusUpdater:
@@ -132,10 +141,11 @@ class MatrixStatusUpdater:
 
             if activity == "Idle" and not is_exit:
                 self.idle_strikes += 1
-                if self.idle_strikes < 3 and not force:
-                    # Debounce: wait for 3 consecutive polls (15s) of 'Idle'
+                max_strikes = max(1, IDLE_TIMEOUT // POLL_INTERVAL)
+                if self.idle_strikes < max_strikes and not force:
+                    # Debounce: wait for IDLE_TIMEOUT seconds of 'Idle'
                     # before actually clearing the Matrix status, preventing
-                    # flickering during 1-2 second gaps between songs.
+                    # flickering during gaps between songs.
                     return
             else:
                 self.idle_strikes = 0
@@ -362,6 +372,23 @@ def _get_line_provider(raw: str) -> str:
     return ""
 
 
+def _apply_provider_inheritance(parsed_lines: list[dict]):
+    """Second pass: Inheritance for players without provider."""
+    providers = {p["provider"] for p in parsed_lines if p["provider"]}
+    for item in parsed_lines:
+        if item["provider"]:
+            continue
+        raw_parts = item["raw"].split(SEP_STR)
+        raw_title = raw_parts[1] if len(raw_parts) > 1 else ""
+        for other in parsed_lines:
+            if not other["provider"]:
+                continue
+            # Inherit if titles match OR if there is only one provider in the batch
+            if raw_title in other["raw"] or len(providers) == 1:
+                item["provider"] = other["provider"]
+                break
+
+
 def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     """Parse multiple player lines and extract the best metadata."""
     best_activity, best_title, best_quality = "Idle", "", 0
@@ -370,30 +397,15 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     parsed_lines = []
     for raw in lines:
         raw = raw.strip()
-        if not raw:
+        if not raw or SEP_STR not in raw:
             continue
         parts = raw.split(SEP_STR)
         url = parts[4] if len(parts) > 4 else ""
-        provider = _get_line_provider(raw)
-        parsed_lines.append({"raw": raw, "provider": provider, "url": url})
+        parsed_lines.append(
+            {"raw": raw, "provider": _get_line_provider(raw), "url": url}
+        )
 
-    # Second pass: Inheritance for players without provider
-    for item in parsed_lines:
-        if item["provider"]:
-            continue
-        raw_parts = item["raw"].split(SEP_STR)
-        raw_title = raw_parts[1] if len(raw_parts) > 1 else ""
-        for other in parsed_lines:
-            if other["provider"]:
-                # Inherit if titles match OR if there is only one provider in the batch
-                # (but only if they are likely from the same browser/source)
-                if (
-                    raw_title in other["raw"]
-                    or len(set(p["provider"] for p in parsed_lines if p["provider"]))
-                    == 1
-                ):
-                    item["provider"] = other["provider"]
-                    break
+    _apply_provider_inheritance(parsed_lines)
 
     # Third pass: Evaluate quality
     for item in parsed_lines:
@@ -447,7 +459,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
         except (OSError, ValueError) as e:
             print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
 
-        await asyncio.sleep(5)
+        await asyncio.sleep(POLL_INTERVAL)
 
 
 async def main():
@@ -463,8 +475,7 @@ async def main():
         action="store_true",
         help="Manually clear status to AFK and exit",
     )
-    if argcomplete:
-        argcomplete.autocomplete(parser)
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
     if args.debug:
@@ -491,6 +502,7 @@ async def main():
                 updater.update("", force=True, is_exit=True), timeout=10.0
             )
             await asyncio.sleep(0.5)
+        # pylint: disable=broad-exception-caught
         except (Exception, asyncio.CancelledError) as e:
             print(f"ERROR: Manual clear failed: {e}", file=sys.stderr)
         await updater.close()
@@ -578,8 +590,13 @@ async def main():
     await updater.close()
 
 
-if __name__ == "__main__":
+def cli():
+    """Synchronous entry point for the package."""
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         pass
+
+
+if __name__ == "__main__":
+    cli()
