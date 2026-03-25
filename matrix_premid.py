@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 """
 Matrix Presence Updater.
 
@@ -7,6 +8,11 @@ native Linux MPRIS (playerctl) events.
 """
 
 import argparse
+
+try:
+    import argcomplete
+except ImportError:
+    argcomplete = None
 import asyncio
 import fcntl
 import html
@@ -448,10 +454,17 @@ async def main():
     """Start the Matrix updater."""
     # pylint: disable=too-many-statements
     parser = argparse.ArgumentParser(description="Matrix Presence/PreMiD Updater")
-    parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument(
-        "--unset", "--clear", action="store_true", help="Manually clear status to AFK and exit"
+        "--debug", action="store_true", help="Enable verbose debug logging"
     )
+    parser.add_argument(
+        "--unset",
+        "--clear",
+        action="store_true",
+        help="Manually clear status to AFK and exit",
+    )
+    if argcomplete:
+        argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
     if args.debug:

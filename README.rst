@@ -54,6 +54,34 @@ If you want to run this constantly in the background as a Linux service, indepen
       sudo systemctl daemon-reload
       sudo systemctl enable --now matrix-premid.service
 
+Basic Usage
+-----------
+
+1. **Install dependencies**: ``pip install -r requirements.txt``
+2. **Setup environment**: Copy ``.env.example`` to ``.env`` and fill in your Matrix details.
+3. **Run the script**: ``python matrix_premid.py``
+
+Command-line Options
+--------------------
+
+* ``--unset`` or ``--clear``: Manually clear status to AFK (unavailable) and exit.
+* ``--debug``: Enable verbose debug logging.
+* ``--help``: Show all available options.
+
+Shell Completion
+----------------
+
+This script supports bash/zsh completion via ``argcomplete``. To enable it:
+
+1. Install ``argcomplete`` (included in requirements).
+2. Register the script:
+
+   .. code-block:: bash
+
+      eval "$(register-python-argcomplete matrix_premid.py)"
+
+   (Add this to your ``.bashrc`` or ``.zshrc`` for persistence).
+
 Development / Local Running
 ---------------------------
 

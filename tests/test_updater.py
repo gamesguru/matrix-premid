@@ -137,10 +137,11 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
 async def test_main_missing_env(_mock_client, _mock_lock, _mock_which, mock_exit):
     """Test main script breaks when Env details are lacking."""
     mock_exit.side_effect = SystemExit()
-    try:
-        await main()
-    except SystemExit:
-        pass
+    with patch("sys.argv", ["matrix_premid.py"]):
+        try:
+            await main()
+        except SystemExit:
+            pass
     mock_exit.assert_called_with(1)
 
 
@@ -179,7 +180,8 @@ async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
                     mock_proc.communicate.side_effect = asyncio.CancelledError()
                     mock_exec.return_value = mock_proc
 
-                    await main()
+                    with patch("sys.argv", ["matrix_premid.py"]):
+                        await main()
         # Use unused vars assertions to cleanly please pylint explicitly
         mock_exit.assert_not_called()
 
