@@ -198,7 +198,11 @@ class MatrixStatusUpdater:
             )
 
             if is_exit:
-                payload = {"presence": "offline"}
+                payload = {
+                    "presence": "offline",
+                    "currently_active": False,
+                    "status_msg": "",
+                }
             else:
                 payload = {
                     "presence": self.current_presence,
@@ -207,7 +211,7 @@ class MatrixStatusUpdater:
                 if activity and activity != "Idle":
                     payload["status_msg"] = activity
 
-            print("DEBUG: Request 2/3 - custom PUT presence (currently_active=True)")
+            print(f"DEBUG: Request 2/3 - custom PUT presence (currently_active={'False' if is_exit else 'True'})")
             resp2 = await self.client._send(
                 PresenceSetResponse,
                 "PUT",
@@ -232,11 +236,10 @@ class MatrixStatusUpdater:
             full_path = Api._build_path(
                 path, {"access_token": self.client.access_token}
             )
-            content = (
-                {"status": activity}
-                if activity and activity != "Idle" and not is_exit
-                else {}
-            )
+            if is_exit or activity == "Idle" or not activity:
+                content = {"status": ""}
+            else:
+                content = {"status": activity}
 
             print("DEBUG: Request 3/3 - PUT account_data (im.vector.user_status)")
             resp3 = await self.client._send(
