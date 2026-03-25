@@ -168,17 +168,18 @@ async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
         # Emit native valid presence payload once, then gracefully exit loop
         mock_instance.sync.side_effect = [mock_resp, asyncio.CancelledError()]
 
-        with patch(
-            "matrix_premid.MatrixStatusUpdater.update", new_callable=AsyncMock
-        ) as mock_update:
-            mock_update.side_effect = asyncio.CancelledError()
+        with patch("matrix_premid.asyncio.Event.wait", new_callable=AsyncMock):
+            with patch(
+                "matrix_premid.MatrixStatusUpdater.update", new_callable=AsyncMock
+            ) as mock_update:
+                mock_update.side_effect = asyncio.CancelledError()
 
-            with patch("matrix_premid.asyncio.create_subprocess_exec") as mock_exec:
-                mock_proc = AsyncMock()
-                mock_proc.communicate.side_effect = asyncio.CancelledError()
-                mock_exec.return_value = mock_proc
+                with patch("matrix_premid.asyncio.create_subprocess_exec") as mock_exec:
+                    mock_proc = AsyncMock()
+                    mock_proc.communicate.side_effect = asyncio.CancelledError()
+                    mock_exec.return_value = mock_proc
 
-                await main()
+                    await main()
         # Use unused vars assertions to cleanly please pylint explicitly
         mock_exit.assert_not_called()
 
