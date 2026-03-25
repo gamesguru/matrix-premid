@@ -154,8 +154,12 @@ class MatrixStatusUpdater:
             if self._update_task and not self._update_task.done():
                 self._update_task.cancel()
 
+            if is_exit:
+                await self._send_update(activity, is_exit)
+                return
+
             async def debounced_send():
-                if not force and not is_exit:
+                if not force:
                     # Wait 2 seconds to absorb rapid metadata shifts
                     # e.g. "Watching: X" -> "Listening to: X - Y"
                     await asyncio.sleep(2.0)
@@ -252,7 +256,45 @@ class MatrixStatusUpdater:
             print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
 
-def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
+def _detect_provider_from_url(url: str) -> str:
+    """Detect the provider based on the xesam:url metadata."""
+    if not url:
+        return ""
+    url_lower = url.lower()
+    if "music.youtube.com" in url_lower:
+        return "YouTube Music"
+    if "youtube.com/watch" in url_lower or "youtube.com/v/" in url_lower:
+        return "YouTube"
+    if "netflix.com" in url_lower:
+        return "Netflix"
+    if "twitch.tv" in url_lower:
+        return "Twitch"
+    return ""
+
+
+def _clean_suffixes(title: str, artist: str) -> tuple[str, str]:
+    """Remove provider suffixes from title and artist."""
+    norm_title = title.strip()
+    norm_artist = artist.strip()
+    # Check longest providers first to prevent substring bugs
+    # (e.g. YouTube vs YouTube Music)
+    for provider in sorted(set(PROVIDERS.values()), key=len, reverse=True):
+        for suffix in [
+            f" - {provider}",
+            f" | {provider}",
+            f" - {provider.lower()}",
+            f" | {provider.lower()}",
+        ]:
+            if norm_title.endswith(suffix):
+                norm_title = norm_title[: -len(suffix)].strip()
+            if norm_artist.endswith(suffix):
+                norm_artist = norm_artist[: -len(suffix)].strip()
+    return norm_title, norm_artist
+
+
+def parse_mpris_data(
+    data: str, global_provider: str = "", url: str = ""
+) -> tuple[str, str]:
     """Parse playerctl data into (activity_string, normalized_title)."""
     # Browsers often double-escape MPRIS metadata, so we unescape aggressively
     data = html.unescape(html.unescape(data))
@@ -261,8 +303,6 @@ def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     parts = [p.strip() for p in data.split(SEP_STR)]
     if not parts or not parts[0]:
         return "Idle", ""
-
-    status = parts[0]
 
     def _deep_clean(text: str) -> str:
         text = html.unescape(html.unescape(text))
@@ -277,41 +317,31 @@ def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     title = _deep_clean(parts[1]) if len(parts) > 1 else "Unknown Title"
     artist = _deep_clean(parts[2]) if len(parts) > 2 else ""
 
-    if status not in ("Playing", "Paused"):
+    if parts[0] not in ("Playing", "Paused"):
         return "Idle", ""
 
-    norm_title = title.strip()
+    # Use URL to explicitly set/refine the provider if available
+    url_provider = _detect_provider_from_url(url)
+    if url_provider:
+        global_provider = url_provider
 
-    # Check longest providers first to prevent substring bugs
-    # (e.g. YouTube vs YouTube Music)
-    for provider in sorted(set(PROVIDERS.values()), key=len, reverse=True):
-        for suffix in [
-            f" - {provider}",
-            f" | {provider}",
-            f" - {provider.lower()}",
-            f" | {provider.lower()}",
-        ]:
-            if norm_title.endswith(suffix):
-                norm_title = norm_title[: -len(suffix)].strip()
-            if artist.endswith(suffix):
-                artist = artist[: -len(suffix)].strip()
+    norm_title, norm_artist = _clean_suffixes(title, artist)
 
     if title == "YouTube Music" and not artist:
         return "Idle (YouTube Music)", norm_title
 
     banned = {"plasma-browser-integration", "firefox", "chrome", "chromium"}
-    is_banned = artist.lower() in banned
-    clean_artist = "" if is_banned else artist
+    is_banned = norm_artist.lower() in banned
+    clean_artist = "" if is_banned else norm_artist
 
-    if status == "Playing":
+    if parts[0] == "Playing":
         prefix = "Watching:" if global_provider in VIDEO_PROVIDERS else "Listening to:"
     else:
         prefix = "Paused:"
 
+    activity = f"{prefix} {norm_title}"
     if clean_artist:
-        activity = f"{prefix} {norm_title} - {clean_artist}"
-    else:
-        activity = f"{prefix} {norm_title}"
+        activity += f" - {clean_artist}"
 
     if global_provider and global_provider not in activity:
         activity += f" | {global_provider}"
@@ -319,51 +349,63 @@ def parse_mpris_data(data: str, global_provider: str = "") -> tuple[str, str]:
     return activity, norm_title
 
 
+def _get_line_provider(raw: str) -> str:
+    """Detect provider for a single line."""
+    lower_line = raw.lower()
+    for key in sorted(PROVIDERS.keys(), key=len, reverse=True):
+        if key in lower_line:
+            return PROVIDERS[key]
+    return ""
+
+
 def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     """Parse multiple player lines and extract the best metadata."""
-    best_activity = "Idle"
-    best_title = ""
-    best_quality = 0
+    best_activity, best_title, best_quality = "Idle", "", 0
 
-    global_provider = ""
-    for line in lines:
-        lower_line = line.lower()
-        # Check longest keys first to prevent substring matches
-        # (e.g. YouTube vs YouTube Music)
-        for key in sorted(PROVIDERS.keys(), key=len, reverse=True):
-            name = PROVIDERS[key]
-            if key in lower_line:
-                if (
-                    name == "Last.fm"
-                    and global_provider
-                    and global_provider != "Last.fm"
-                ):
-                    continue
-                global_provider = name
-                break
-
+    # First pass: Parse each line and detect its own provider
+    parsed_lines = []
     for raw in lines:
         raw = raw.strip()
         if not raw:
             continue
+        parts = raw.split(SEP_STR)
+        url = parts[4] if len(parts) > 4 else ""
+        provider = _get_line_provider(raw)
+        parsed_lines.append({"raw": raw, "provider": provider, "url": url})
 
-        activity, title = parse_mpris_data(raw, global_provider)
+    # Second pass: Inheritance for players without provider
+    for item in parsed_lines:
+        if item["provider"]:
+            continue
+        raw_parts = item["raw"].split(SEP_STR)
+        raw_title = raw_parts[1] if len(raw_parts) > 1 else ""
+        for other in parsed_lines:
+            if other["provider"]:
+                # Inherit if titles match OR if there is only one provider in the batch
+                # (but only if they are likely from the same browser/source)
+                if (
+                    raw_title in other["raw"]
+                    or len(set(p["provider"] for p in parsed_lines if p["provider"]))
+                    == 1
+                ):
+                    item["provider"] = other["provider"]
+                    break
 
+    # Third pass: Evaluate quality
+    for item in parsed_lines:
+        activity, title = parse_mpris_data(item["raw"], item["provider"], item["url"])
         quality = 0
-        if activity.startswith("Listening to:") or activity.startswith("Watching:"):
+        if activity.startswith(("Listening to:", "Watching:")):
             quality = 20 if " - " in activity else 10
-            if global_provider and f"| {global_provider}" in activity:
+            if item["provider"] and f"| {item['provider']}" in activity:
                 quality += 1
         elif activity.startswith("Paused:"):
-            # Ensure paused tracks win over "Idle" (0) but lose to "Playing" (10+)
             quality = 5
-        elif activity != "Idle" and not activity.startswith("Idle"):
+        elif activity not in ("", "Idle") and not activity.startswith("Idle"):
             quality = 10
 
         if quality > best_quality:
-            best_activity = activity
-            best_title = title
-            best_quality = quality
+            best_activity, best_title, best_quality = activity, title, quality
 
     return best_activity, best_title
 
@@ -383,7 +425,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
                 "metadata",
                 "--format",
                 f"{{{{status}}}}{SEP_STR}{{{{title}}}}{SEP_STR}"
-                f"{{{{artist}}}}{SEP_STR}{{{{playerName}}}}",
+                f"{{{{artist}}}}{SEP_STR}{{{{playerName}}}}{SEP_STR}{{{{xesam:url}}}}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -439,7 +481,7 @@ async def main():
     async def keep_alive():
         """Keep status online."""
 
-        async def sync_loop():
+        async def sync_loop():  # pragma: no cover
             while True:
                 try:
                     # Sync with set_presence="online" to brutally override Nheko

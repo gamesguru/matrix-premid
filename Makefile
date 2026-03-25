@@ -55,7 +55,7 @@ test:	##H Run unit tests with coverage
 
 .PHONY: run
 run:	##H Run the application locally
-	$(PYTHON) matrix_premid.py
+	$(PYTHON) matrix_premid.py --debug
 
 .PHONY: restart
 restart: ##H Restart the background systemd service
