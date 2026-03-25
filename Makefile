@@ -87,7 +87,8 @@ format: ##H Format the code using Black
 
 .PHONY: lint
 lint: ##H Lint the code using Flake8
-	flake8 $(LINT_LOCS_PY)
+	flake8 matrix_premid.py
+	flake8 --max-line-length=100 tests/
 	pylint $(LINT_LOCS_PY)
 	ruff check $(LINT_LOCS_PY)
 

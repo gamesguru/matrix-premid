@@ -191,5 +191,21 @@ async def test_updater_close():
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
         await updater.close()
-        # pylint: disable=no-member
         updater.client.close.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_main_unset_flag():
+    """Test the manual --unset flag in main."""
+    from matrix_premid import main
+
+    with patch("sys.argv", ["matrix_premid.py", "--unset"]), patch(
+        "matrix_premid.MatrixStatusUpdater"
+    ) as mock_updater_class:
+        mock_updater = AsyncMock()
+        mock_updater_class.return_value = mock_updater
+
+        await main()
+
+        mock_updater.update.assert_awaited_with("", force=True, is_exit=True)
+        mock_updater.close.assert_awaited()

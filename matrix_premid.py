@@ -6,6 +6,7 @@ A robust script to update Matrix presence and Element status based on
 native Linux MPRIS (playerctl) events.
 """
 
+import argparse
 import asyncio
 import fcntl
 import html
@@ -56,14 +57,6 @@ def acquire_lock():
         print("ERROR: Another instance is already running.", file=sys.stderr)
         sys.exit(1)
 
-
-DEBUG_MODE = "--debug" in sys.argv
-
-if DEBUG_MODE:
-    logging.getLogger("nio").setLevel(logging.DEBUG)
-else:
-    # Suppress noisy matrix-nio validation errors
-    logging.getLogger("nio").setLevel(logging.CRITICAL)
 
 # --- CONFIGURATION ---
 HOMESERVER = os.environ.get("HOMESERVER", "")
@@ -438,7 +431,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
             stdout, _ = await process.communicate()
             if stdout:
                 lines = stdout.decode("utf-8").strip().splitlines()
-                if DEBUG_MODE:
+                if "--debug" in sys.argv:
                     print(f"DEBUG: raw playerctl lines: {lines}", flush=True)
                 activity, title = _get_best_mpris_activity(lines)
                 await updater.update(activity, title=title)
@@ -454,10 +447,19 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
 async def main():
     """Start the Matrix updater."""
     # pylint: disable=too-many-statements
+    parser = argparse.ArgumentParser(description="Matrix Presence/PreMiD Updater")
+    parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
+    parser.add_argument(
+        "--unset", "--clear", action="store_true", help="Manually clear status to AFK and exit"
+    )
+    args = parser.parse_args()
 
-    is_manual_clear = "--unset" in sys.argv or "--clear" in sys.argv
+    if args.debug:
+        logging.getLogger("nio").setLevel(logging.DEBUG)
+    else:
+        logging.getLogger("nio").setLevel(logging.CRITICAL)
 
-    if not is_manual_clear and not shutil.which("playerctl"):
+    if not args.unset and not shutil.which("playerctl"):
         print("ERROR: playerctl command not found. Please install it.", file=sys.stderr)
         sys.exit(1)
 
@@ -469,7 +471,7 @@ async def main():
         HOMESERVER, USERNAME, ACCESS_TOKEN, device_id=DEVICE_ID
     )
 
-    if is_manual_clear:
+    if args.unset:
         print("Manual status clear requested (AFK)...", flush=True)
         try:
             await asyncio.wait_for(
