@@ -169,88 +169,94 @@ class MatrixStatusUpdater:
 
     async def _send_update(self, activity: str, is_exit: bool = False):
         try:
-            # 1. Standard Presence
-            if is_exit:
-                pres_state = "offline"
-                pres_msg = ""
-            else:
-                pres_state = self.current_presence
-                pres_msg = activity if activity != "Idle" else ""
-
-            print(
-                f"DEBUG: Request 1/3 - set_presence(presence='{pres_state}', "
-                f"status_msg='{pres_msg}')"
-            )
-            resp1 = await self.client.set_presence(
-                presence=pres_state, status_msg=pres_msg
-            )
-            if isinstance(resp1, ErrorResponse):  # pragma: no cover
-                print(
-                    "ERROR: set_presence failed: "
-                    f"{getattr(resp1, 'message', resp1)}",
-                    file=sys.stderr,
-                )
-
-            path = ["presence", self.client.user_id, "status"]
+            # 1. Presence Payload
+            path_p = ["presence", self.client.user_id, "status"]
             # pylint: disable=protected-access
-            full_path = Api._build_path(
-                path, {"access_token": self.client.access_token}
+            full_path_p = Api._build_path(
+                path_p, {"access_token": self.client.access_token}
             )
 
             if is_exit:
-                payload = {
-                    "presence": "offline",
+                payload_p = {
+                    "presence": "unavailable",  # 'Away' state
                     "currently_active": False,
-                    "status_msg": "",
+                    "status_msg": "AFK",
                 }
             else:
-                payload = {
+                payload_p = {
                     "presence": self.current_presence,
                     "currently_active": True,
                 }
                 if activity and activity != "Idle":
-                    payload["status_msg"] = activity
+                    payload_p["status_msg"] = activity
 
-            print(f"DEBUG: Request 2/3 - custom PUT presence (currently_active={'False' if is_exit else 'True'})")
-            resp2 = await self.client._send(
-                PresenceSetResponse,
-                "PUT",
-                full_path,
-                data=Api.to_json(payload),
-            )
-            if isinstance(resp2, ErrorResponse):  # pragma: no cover
-                print(
-                    "ERROR: custom presence failed: "
-                    f"{getattr(resp2, 'message', resp2)}",
-                    file=sys.stderr,
-                )
-
-            # 2. Element Custom Status
-            path = [
+            # 2. Element Status Payload
+            path_s = [
                 "user",
                 self.client.user_id,
                 "account_data",
                 "im.vector.user_status",
             ]
-            # pylint: disable=protected-access
-            full_path = Api._build_path(
-                path, {"access_token": self.client.access_token}
+            full_path_s = Api._build_path(
+                path_s, {"access_token": self.client.access_token}
             )
-            if is_exit or activity == "Idle" or not activity:
-                content = {"status": ""}
+            if is_exit:
+                payload_s = {"status": "AFK"}
+            elif activity == "Idle" or not activity:
+                payload_s = {}
             else:
-                content = {"status": activity}
+                payload_s = {"status": activity}
 
-            print("DEBUG: Request 3/3 - PUT account_data (im.vector.user_status)")
-            resp3 = await self.client._send(
-                EmptyResponse, "PUT", full_path, data=Api.to_json(content)
-            )
-            if isinstance(resp3, ErrorResponse):  # pragma: no cover
+            async def send_presence():
                 print(
-                    "ERROR: account_data failed: "
-                    f"{getattr(resp3, 'message', resp3)}",
-                    file=sys.stderr,
+                    f"DEBUG: Request 1/2 - PUT presence (presence={payload_p['presence']}, "
+                    f"currently_active={payload_p['currently_active']})"
                 )
+                try:
+                    resp = await asyncio.wait_for(
+                        self.client._send(
+                            PresenceSetResponse,
+                            "PUT",
+                            full_path_p,
+                            data=Api.to_json(payload_p),
+                        ),
+                        timeout=5.0 if is_exit else 10.0,
+                    )
+                    if isinstance(resp, ErrorResponse):  # pragma: no cover
+                        print(
+                            f"ERROR: presence update failed: {getattr(resp, 'message', resp)}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print("DEBUG: Request 1/2 finished (presence)")
+                except asyncio.TimeoutError:
+                    print("DEBUG: Request 1/2 timed out (presence)", file=sys.stderr)
+
+            async def send_status():
+                print("DEBUG: Request 2/2 - PUT account_data (im.vector.user_status)")
+                try:
+                    resp = await asyncio.wait_for(
+                        self.client._send(
+                            EmptyResponse,
+                            "PUT",
+                            full_path_s,
+                            data=Api.to_json(payload_s),
+                        ),
+                        timeout=5.0 if is_exit else 10.0,
+                    )
+                    if isinstance(resp, ErrorResponse):  # pragma: no cover
+                        print(
+                            f"ERROR: account_data failed: {getattr(resp, 'message', resp)}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print("DEBUG: Request 2/2 finished (account_data)")
+                except asyncio.TimeoutError:
+                    print(
+                        "DEBUG: Request 2/2 timed out (account_data)", file=sys.stderr
+                    )
+
+            await asyncio.gather(send_presence(), send_status())
 
         except asyncio.CancelledError:
             pass
@@ -533,8 +539,10 @@ async def main():
     print("Clearing Matrix status before exit...", flush=True)
     try:
         await asyncio.wait_for(
-            updater.update("", force=True, is_exit=True), timeout=3.0
+            updater.update("", force=True, is_exit=True), timeout=5.0
         )
+        # Give nio a moment to actually flush the requests to the network
+        await asyncio.sleep(0.5)
     except (  # pylint: disable=broad-exception-caught
         Exception,
         asyncio.CancelledError,

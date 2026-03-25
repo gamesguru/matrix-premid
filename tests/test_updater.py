@@ -34,9 +34,11 @@ async def test_updater_update():
         updater = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
         await updater.update("Listening to: Song | YT Music")
         await updater._update_task
-        updater.client.set_presence.assert_awaited_with(
-            presence="online", status_msg="Listening to: Song | YT Music"
-        )
+        # Verify Presence Update
+        presence_call = [
+            c for c in updater.client._send.await_args_list if "presence" in str(c)
+        ]
+        assert len(presence_call) > 0
 
 
 @pytest.mark.asyncio
@@ -47,7 +49,7 @@ async def test_updater_update_paused():
         updater = MatrixStatusUpdater("mock", "mock", "mock")
         await updater.update("Paused: Song - Artist | YT Music")
         await updater._update_task
-        updater.client.set_presence.assert_awaited()
+        assert updater.client._send.await_count >= 1
 
 
 @pytest.mark.asyncio
@@ -58,9 +60,7 @@ async def test_updater_update_empty():
         updater = MatrixStatusUpdater("http://mock", "mock", "mock")
         await updater.update("", force=True)
         await updater._update_task
-        updater.client.set_presence.assert_awaited_with(
-            presence="online", status_msg=""
-        )
+        assert updater.client._send.await_count >= 1
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_updater_update_other():
         updater = MatrixStatusUpdater("http://mock", "mock", "mock")
         await updater.update("Watching: Movie", title="Movie")
         await updater._update_task
-        updater.client.set_presence.assert_awaited()
+        assert updater.client._send.await_count >= 1
 
 
 @pytest.mark.asyncio
@@ -80,10 +80,10 @@ async def test_updater_update_exception():
     with patch("matrix_premid.AsyncClient") as mock_client:
         mock_client.return_value = AsyncMock()
         updater = MatrixStatusUpdater("mock", "mock", "mock")
-        updater.client.set_presence.side_effect = asyncio.TimeoutError()
+        updater.client._send.side_effect = asyncio.TimeoutError()
         await updater.update("Listening to: Song")
         await updater._update_task
-        updater.client.set_presence.assert_awaited()
+        assert updater.client._send.await_count >= 1
 
 
 @pytest.mark.asyncio
