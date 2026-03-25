@@ -11,39 +11,40 @@ PYTHON=$(VENV)/bin/python
 PIP=$(VENV)/bin/pip
 
 .PHONY: init
-init:	##H Initialize .venv virtual dev env
+init: ##H Initialize .venv virtual dev env
 	python3 -m venv $(VENV)
 	-direnv allow
 
 .PHONY: deps
-deps:	##H Install standard and dev dependencies
+deps: ##H Install standard and dev dependencies
 	$(VENV)/bin/pip install -r requirements.txt -r requirements-dev.txt
 
 # Default install location
 INSTALL_DIR ?= /opt/matrix-premid
 
 .PHONY: install
-install: ##H Install dependencies, env, binary, and systemd service to /opt (requires sudo)
+install: ##H Install globally to /opt (requires being run with sudo)
 	@if [ ! -f .env ]; then \
 		echo "$(STYLE_CYAN)Error: .env file not found!$(STYLE_RESET)"; \
 		echo "Please copy .env.example to .env and configure your credentials first."; \
 		exit 1; \
 	fi
 	@echo "Installing globally to $(INSTALL_DIR)..."
-	sudo mkdir -p $(INSTALL_DIR)
-	sudo cp matrix_premid.py requirements.txt $(INSTALL_DIR)/
-	sudo cp .env $(INSTALL_DIR)/.env
-	sudo chown $$(id -un):$$(id -gn) $(INSTALL_DIR)/.env
-	sudo chmod 600 $(INSTALL_DIR)/.env
-	sudo python3 -m venv $(INSTALL_DIR)/.venv
-	sudo $(INSTALL_DIR)/.venv/bin/pip install -r $(INSTALL_DIR)/requirements.txt
-	sudo ln -sf $(INSTALL_DIR)/matrix_premid.py /usr/local/bin/matrix_premid
-	sudo chmod +x $(INSTALL_DIR)/matrix_premid.py
-	sudo cp etc/matrix-premid.service /etc/systemd/system/matrix-premid.service
-	sudo systemctl daemon-reload
-	sudo systemctl enable matrix-premid.service
+	mkdir -p $(INSTALL_DIR)
+	cp -r src/ requirements.txt pyproject.toml .env $(INSTALL_DIR)/
+	chown $$(id -un):$$(id -gn) $(INSTALL_DIR)/.env
+	chmod 600 $(INSTALL_DIR)/.env
+	python3 -m venv $(INSTALL_DIR)/.venv
+	$(INSTALL_DIR)/.venv/bin/pip install $(INSTALL_DIR)
+	ln -sf $(INSTALL_DIR)/.venv/bin/matrix-premid /usr/local/bin/matrix-premid
+	cp etc/matrix-premid.service /etc/systemd/system/matrix-premid.service
+	systemctl daemon-reload
+	systemctl enable matrix-premid.service
 	@echo "Installed to $(INSTALL_DIR) and service created."
 
+.PHONY: install-user
+install-user: ##H Install to user site-packages (bypasses active venv)
+	env -u VIRTUAL_ENV /usr/bin/python3 -m pip install --user --break-system-packages .
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Unit tests and local running
@@ -51,11 +52,11 @@ install: ##H Install dependencies, env, binary, and systemd service to /opt (req
 
 .PHONY: test
 test:	##H Run unit tests with coverage
-	PYTHONPATH=. $(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
+	PYTHONPATH=src $(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
 
 .PHONY: run
 run:	##H Run the application locally
-	$(PYTHON) matrix_premid.py --debug
+	PYTHONPATH=src $(PYTHON) -m matrix_premid --debug
 
 .PHONY: restart
 restart: ##H Restart the background systemd service
@@ -106,5 +107,5 @@ clean: ##H Clean the virtual environment and caches
 
 .PHONY: _help
 _help: ##H Show this help, list available targets
-	@grep -hE '^[a-zA-Z0-9_\/-]+:.*?##H .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?##H "}; {printf "$(STYLE_CYAN)%-15s$(STYLE_RESET) %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z0-9_\/-]+:[[:space:]]*##H .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":[[:space:]]*##H "}; {printf "$(STYLE_CYAN)%-15s$(STYLE_RESET) %s\n", $$1, $$2}'

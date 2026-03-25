@@ -41,14 +41,13 @@ VIDEO_PROVIDERS = {"Netflix", "Plex", "Twitch", "YouTube"}
 SEP_STR = "_||_"
 
 # Load environment variables
-_script_dir = os.path.dirname(os.path.realpath(__file__))
-_local_env = os.path.join(_script_dir, ".env")
+_cwd_env = os.path.join(os.getcwd(), ".env")
 _config_env = os.path.expanduser("~/.config/matrix-premid/.env")
 
-if os.path.exists(_local_env):
-    load_dotenv(dotenv_path=_local_env)
-elif os.path.exists(_config_env):
+if os.path.exists(_config_env):
     load_dotenv(dotenv_path=_config_env)
+elif os.path.exists(_cwd_env):
+    load_dotenv(dotenv_path=_cwd_env)
 else:
     load_dotenv()
 
@@ -488,7 +487,12 @@ async def main():
         sys.exit(1)
 
     if not all([HOMESERVER, USERNAME, ACCESS_TOKEN]):
-        print("ERROR: Missing configuration in .env", file=sys.stderr)
+        print(
+            "ERROR: Missing configuration. Please ensure you have a .env file at:\n"
+            "  ~/.config/matrix-premid/.env\n"
+            "or in your current directory.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     updater = MatrixStatusUpdater(
@@ -502,8 +506,10 @@ async def main():
                 updater.update("", force=True, is_exit=True), timeout=10.0
             )
             await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            pass
         # pylint: disable=broad-exception-caught
-        except (Exception, asyncio.CancelledError) as e:
+        except Exception as e:
             print(f"ERROR: Manual clear failed: {e}", file=sys.stderr)
         await updater.close()
         return
