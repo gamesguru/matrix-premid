@@ -20,7 +20,8 @@ def test_parse_mpris_data_playing_song_with_artist():
 
 def test_parse_mpris_data_playing_youtube_music_suffix():
     url = "https://music.youtube.com/watch?v=123"
-    raw = f"Playing{SEP_STR}Sea Of Feelings - YouTube Music{SEP_STR}{SEP_STR}firefox{SEP_STR}{url}"
+    content = f"Sea Of Feelings - YouTube Music{SEP_STR}{SEP_STR}firefox{SEP_STR}"
+    raw = f"Playing{SEP_STR}{content}{url}"
     activity, title = parse_mpris_data(raw, "YouTube Music", url)
     assert activity == "Listening to: Sea Of Feelings | YouTube Music"
     assert title == "Sea Of Feelings"
@@ -72,7 +73,7 @@ def test_get_best_mpris_activity_prioritizes_paused_over_idle():
         f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox{SEP_STR}{url}",
         (
             f"Paused{SEP_STR}Awesome Song{SEP_STR}Awesome Artist"
-            f"{SEP_STR}plasma-browser-integration{SEP_STR}"
+            f"{SEP_STR}plasma-integration{SEP_STR}"
         ),  # noqa: E501
     ]
     activity, title = _get_best_mpris_activity(lines)

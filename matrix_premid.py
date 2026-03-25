@@ -208,10 +208,12 @@ class MatrixStatusUpdater:
                 payload_s = {"status": activity}
 
             async def send_presence():
-                print(
-                    f"DEBUG: Request 1/2 - PUT presence (presence={payload_p['presence']}, "
-                    f"currently_active={payload_p['currently_active']})"
+                p, c, m = (
+                    payload_p["presence"],
+                    payload_p["currently_active"],
+                    payload_p.get("status_msg", ""),
                 )
+                print(f"DEBUG: Req 1/2 (presence={p}, active={c}, msg='{m}')")
                 try:
                     resp = await asyncio.wait_for(
                         self.client._send(
@@ -223,17 +225,15 @@ class MatrixStatusUpdater:
                         timeout=5.0 if is_exit else 10.0,
                     )
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
-                        print(
-                            f"ERROR: presence update failed: {getattr(resp, 'message', resp)}",
-                            file=sys.stderr,
-                        )
+                        msg = getattr(resp, "message", resp)
+                        print(f"ERROR: presence failed: {msg}", file=sys.stderr)
                     else:
-                        print("DEBUG: Request 1/2 finished (presence)")
+                        print("DEBUG: Req 1/2 finished (presence)")
                 except asyncio.TimeoutError:
-                    print("DEBUG: Request 1/2 timed out (presence)", file=sys.stderr)
+                    print("DEBUG: Req 1/2 timeout (presence)", file=sys.stderr)
 
             async def send_status():
-                print("DEBUG: Request 2/2 - PUT account_data (im.vector.user_status)")
+                print(f"DEBUG: Req 2/2 (im.vector.user_status, content={payload_s})")
                 try:
                     resp = await asyncio.wait_for(
                         self.client._send(
@@ -245,16 +245,12 @@ class MatrixStatusUpdater:
                         timeout=5.0 if is_exit else 10.0,
                     )
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
-                        print(
-                            f"ERROR: account_data failed: {getattr(resp, 'message', resp)}",
-                            file=sys.stderr,
-                        )
+                        msg = getattr(resp, "message", resp)
+                        print(f"ERROR: account_data failed: {msg}", file=sys.stderr)
                     else:
-                        print("DEBUG: Request 2/2 finished (account_data)")
+                        print("DEBUG: Req 2/2 finished (account_data)")
                 except asyncio.TimeoutError:
-                    print(
-                        "DEBUG: Request 2/2 timed out (account_data)", file=sys.stderr
-                    )
+                    print("DEBUG: Req 2/2 timeout (account_data)", file=sys.stderr)
 
             await asyncio.gather(send_presence(), send_status())
 
@@ -459,12 +455,12 @@ async def main():
     """Start the Matrix updater."""
     # pylint: disable=too-many-statements
 
-    if not shutil.which("playerctl"):
+    is_manual_clear = "--unset" in sys.argv or "--clear" in sys.argv
+
+    if not is_manual_clear and not shutil.which("playerctl"):
         print("ERROR: playerctl command not found. Please install it.", file=sys.stderr)
         sys.exit(1)
 
-    # pylint: disable=unused-variable
-    lock_fd = acquire_lock()  # noqa: F841
     if not all([HOMESERVER, USERNAME, ACCESS_TOKEN]):
         print("ERROR: Missing configuration in .env", file=sys.stderr)
         sys.exit(1)
@@ -472,6 +468,21 @@ async def main():
     updater = MatrixStatusUpdater(
         HOMESERVER, USERNAME, ACCESS_TOKEN, device_id=DEVICE_ID
     )
+
+    if is_manual_clear:
+        print("Manual status clear requested (AFK)...", flush=True)
+        try:
+            await asyncio.wait_for(
+                updater.update("", force=True, is_exit=True), timeout=10.0
+            )
+            await asyncio.sleep(0.5)
+        except (Exception, asyncio.CancelledError) as e:
+            print(f"ERROR: Manual clear failed: {e}", file=sys.stderr)
+        await updater.close()
+        return
+
+    # pylint: disable=unused-variable
+    lock_fd = acquire_lock()  # noqa: F841
     print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
 
     shutdown_event = asyncio.Event()
