@@ -85,6 +85,11 @@ build: ##H Build the package (requires hatch)
 	$(VENV)/bin/pip install hatch
 	$(VENV)/bin/hatch build
 
+.PHONY: publish
+publish: build ##H Upload the package to PyPI using twine
+	$(VENV)/bin/pip install twine
+	$(VENV)/bin/twine upload dist/*
+
 .PHONY: clean
 clean: ##H Clean the virtual environment and caches
 	rm -rf $(VENV)

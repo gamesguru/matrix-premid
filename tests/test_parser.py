@@ -152,20 +152,3 @@ def test_parse_mpris_data_invalid_array():
     act, title = parse_mpris_data(raw)
     assert act == "Listening to: Song Title - [Invalid, Array]"
     assert title == "Song Title"
-
-
-def test_parse_mpris_data_not_a_list():
-    # Looks like an array but parses to a tuple or dict
-    raw = f"Playing{SEP_STR}Song Title{SEP_STR}[1, 2]{SEP_STR}firefox"
-    # Actually [1, 2] is a list. Let's make it parse to something else.
-    # Wait, literal_eval of something starting with [ and ending with ] is always a list
-    # unless it's like "[1, 2] " but deep_clean strips whitespace.
-    pass
-
-
-def test_parse_mpris_data_eval_not_list():
-    # To bypass isinstance(parsed, list), ast.literal_eval must return not a list.
-    # Wait, ast.literal_eval("['string']") is a list. What starts with [ and ends with ] but isn't a list?
-    # Nothing valid in ast.literal_eval. Wait, "[1 for x in y]" raises SyntaxError (comprehension).
-    # Since we can't easily trigger the False branch if it parses successfully, we might just need to add pragma no cover.
-    pass

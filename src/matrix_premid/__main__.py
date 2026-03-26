@@ -188,7 +188,7 @@ class MatrixStatusUpdater:
                 payload_p = {
                     "presence": "unavailable",  # 'Away' state
                     "currently_active": False,
-                    "status_msg": "AFK",
+                    "status_msg": "Idle",
                 }
             else:
                 payload_p = {
@@ -209,7 +209,7 @@ class MatrixStatusUpdater:
                 path_s, {"access_token": self.client.access_token}
             )
             if is_exit:
-                payload_s = {"status": "AFK"}
+                payload_s = {"status": "Idle"}
             elif activity == "Idle" or not activity:
                 payload_s = {}
             else:
@@ -318,7 +318,7 @@ def parse_mpris_data(
         return "Idle", ""
 
     def _deep_clean(text: str) -> str:
-        import ast
+        import ast  # pylint: disable=import-outside-toplevel
 
         text = html.unescape(html.unescape(text))
         cleaned = (
@@ -475,7 +475,7 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
 
 def install_service():
     """Install the systemd user service."""
-    import subprocess
+    import subprocess  # pylint: disable=import-outside-toplevel
 
     executable = shutil.which("matrix-premid")
     if not executable:
@@ -541,7 +541,7 @@ async def main():
         "--unset",
         "--clear",
         action="store_true",
-        help="Manually clear status to AFK and exit",
+        help="Manually clear status to Idle and exit",
     )
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
@@ -573,7 +573,7 @@ async def main():
     )
 
     if args.unset:
-        print("Manual status clear requested (AFK)...", flush=True)
+        print("Manual status clear requested (Idle)...", flush=True)
         try:
             await asyncio.wait_for(
                 updater.update("", force=True, is_exit=True), timeout=10.0
