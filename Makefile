@@ -19,32 +19,19 @@ init: ##H Initialize .venv virtual dev env
 deps: ##H Install standard and dev dependencies
 	$(VENV)/bin/pip install -r requirements.txt -r requirements-dev.txt
 
-# Default install location
-INSTALL_DIR ?= /opt/matrix-premid
-
 .PHONY: install
-install: ##H Install globally to /opt (requires being run with sudo)
-	@if [ ! -f .env ]; then \
-		echo "$(STYLE_CYAN)Error: .env file not found!$(STYLE_RESET)"; \
-		echo "Please copy .env.example to .env and configure your credentials first."; \
-		exit 1; \
-	fi
-	@echo "Installing globally to $(INSTALL_DIR)..."
-	mkdir -p $(INSTALL_DIR)
-	cp -r src/ requirements.txt pyproject.toml .env $(INSTALL_DIR)/
-	chown $$(id -un):$$(id -gn) $(INSTALL_DIR)/.env
-	chmod 600 $(INSTALL_DIR)/.env
-	python3 -m venv $(INSTALL_DIR)/.venv
-	$(INSTALL_DIR)/.venv/bin/pip install $(INSTALL_DIR)
-	ln -sf $(INSTALL_DIR)/.venv/bin/matrix-premid /usr/local/bin/matrix-premid
-	cp etc/matrix-premid.service /etc/systemd/system/matrix-premid.service
-	systemctl daemon-reload
-	systemctl enable matrix-premid.service
-	@echo "Installed to $(INSTALL_DIR) and service created."
-
-.PHONY: install-user
-install-user: ##H Install to user site-packages (bypasses active venv)
+install: ##H Install locally and setup systemd user service
 	env -u VIRTUAL_ENV /usr/bin/python3 -m pip install --user --break-system-packages .
+	@mkdir -p ~/.config/matrix-premid
+	@if [ -f .env ] && [ ! -f ~/.config/matrix-premid/.env ]; then \
+		cp .env ~/.config/matrix-premid/.env; \
+		echo "$(STYLE_CYAN)Success:$(STYLE_RESET) Copied local .env to ~/.config/matrix-premid/.env"; \
+	elif [ ! -f .env ] && [ ! -f ~/.config/matrix-premid/.env ] && [ -f .env.example ]; then \
+		cp .env.example ~/.config/matrix-premid/.env; \
+		echo "$(STYLE_CYAN)Note:$(STYLE_RESET) Created template config at ~/.config/matrix-premid/.env (Please edit it!)"; \
+	fi
+	@echo "Setting up systemd service..."
+	~/.local/bin/matrix-premid install-service
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Unit tests and local running
@@ -60,15 +47,15 @@ run:	##H Run the application locally
 
 .PHONY: restart
 restart: ##H Restart the background systemd service
-	sudo systemctl restart matrix-premid.service
+	systemctl --user restart matrix-premid.service
 
 .PHONY: log
 log:	##H Watch journalctl logs of installed/running service
-	sudo journalctl -fu matrix-premid
+	journalctl --user -fu matrix-premid
 
 .PHONY: stop
 stop: ##H Stop the background systemd service
-	sudo systemctl stop matrix-premid.service
+	systemctl --user stop matrix-premid.service
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

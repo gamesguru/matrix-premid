@@ -318,14 +318,26 @@ def parse_mpris_data(
         return "Idle", ""
 
     def _deep_clean(text: str) -> str:
+        import ast
+
         text = html.unescape(html.unescape(text))
-        return (
+        cleaned = (
             text.replace("&quot;", '"')
             .replace("&apos;", "'")
             .replace("&#39;", "'")
             .replace("&amp;", "&")
             .strip()
         )
+
+        if cleaned.startswith("[") and cleaned.endswith("]"):
+            try:
+                parsed = ast.literal_eval(cleaned)
+                if isinstance(parsed, list):  # pragma: no branch
+                    return ", ".join(str(x) for x in parsed)
+            except (ValueError, SyntaxError):  # pragma: no cover
+                pass
+
+        return cleaned
 
     title = _deep_clean(parts[1]) if len(parts) > 1 else "Unknown Title"
     artist = _deep_clean(parts[2]) if len(parts) > 2 else ""
@@ -461,10 +473,67 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
         await asyncio.sleep(POLL_INTERVAL)
 
 
+def install_service():
+    """Install the systemd user service."""
+    import subprocess
+
+    executable = shutil.which("matrix-premid")
+    if not executable:
+        # Fallback if not in PATH
+        executable = sys.executable + " -m matrix_premid"
+
+    service_content = f"""[Unit]
+Description=Matrix Presence Updater
+After=network.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+ExecStart={executable}
+Restart=on-failure
+RestartSec=120
+
+[Install]
+WantedBy=default.target
+"""
+    config_dir = os.path.expanduser("~/.config/systemd/user")
+    os.makedirs(config_dir, exist_ok=True)
+    service_file = os.path.join(config_dir, "matrix-premid.service")
+
+    with open(service_file, "w", encoding="utf-8") as f:
+        f.write(service_content)
+
+    print(f"Created systemd user service at {service_file}")
+
+    app_config_dir = os.path.expanduser("~/.config/matrix-premid")
+    os.makedirs(app_config_dir, exist_ok=True)
+    env_file = os.path.join(app_config_dir, ".env")
+    if not os.path.exists(env_file):
+        with open(env_file, "w", encoding="utf-8") as f:
+            f.write("HOMESERVER=\nUSERNAME=\nACCESS_TOKEN=\nDEVICE_ID=\n")
+        print(f"Created empty config at {env_file} (Please edit!)")
+
+    try:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(
+            ["systemctl", "--user", "enable", "--now", "matrix-premid.service"],
+            check=True,
+        )
+        print("Service enabled and started successfully.")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print(f"Failed to enable/start service: {e}", file=sys.stderr)
+
+
 async def main():
     """Start the Matrix updater."""
     # pylint: disable=too-many-statements
     parser = argparse.ArgumentParser(description="Matrix Presence/PreMiD Updater")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["install-service"],
+        help="Optional command (e.g., install-service)",
+    )
     parser.add_argument(
         "--debug", action="store_true", help="Enable verbose debug logging"
     )
@@ -476,6 +545,10 @@ async def main():
     )
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
+
+    if args.command == "install-service":  # pragma: no cover
+        install_service()
+        return
 
     if args.debug:
         logging.getLogger("nio").setLevel(logging.DEBUG)
@@ -543,6 +616,10 @@ async def main():
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
                         msg = getattr(resp, "message", resp)
                         print(f"ERROR: sync failed: {msg}", file=sys.stderr)
+                        if "--debug" in sys.argv:
+                            print(
+                                f"DEBUG sync error resp: {vars(resp)}", file=sys.stderr
+                            )
                         if getattr(resp, "status_code", 0) in (401, 403):
                             print("ERROR: Unauthorized. Exiting.", file=sys.stderr)
                             shutdown_event.set()
