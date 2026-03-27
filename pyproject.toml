@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "matrix-premid"
-version = "0.1.2"
+dynamic = ["version"]
 description = "Matrix Presence Updater based on MPRIS events"
 readme = "README.rst"
 requires-python = ">=3.10"
@@ -17,6 +17,12 @@ dependencies = [
     "argcomplete>=3.5.3",
     "keyring>=24.0.0"
 ]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/matrix_premid/_version.py"
 
 [project.scripts]
 matrix-premid = "matrix_premid.__main__:cli"
