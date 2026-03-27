@@ -558,16 +558,21 @@ WantedBy=default.target
             "Note: Store your access token using keyring: "
             "python -m keyring set matrix-premid @user:matrix.org"
         )
+    else:
+        print(f"Config already exists at: {config_file}")
 
     try:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
         subprocess.run(
-            ["systemctl", "--user", "enable", "--now", "matrix-premid.service"],
+            ["systemctl", "--user", "enable", "matrix-premid.service"],
             check=True,
         )
-        print("Service enabled and started successfully.")
+        print(
+            "Service enabled successfully. Start it with: "
+            "systemctl --user start matrix-premid.service"
+        )
     except Exception as e:  # pylint: disable=broad-exception-caught
-        print(f"Failed to enable/start service: {e}", file=sys.stderr)
+        print(f"Failed to enable service: {e}", file=sys.stderr)
 
 
 async def main():

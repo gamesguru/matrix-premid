@@ -22,14 +22,6 @@ deps: ##H Install standard and dev dependencies
 .PHONY: install
 install: ##H Install locally and setup systemd user service
 	env -u VIRTUAL_ENV /usr/bin/python3 -m pip install --user --break-system-packages .
-	@mkdir -p ~/.config/matrix-premid
-	@if [ -f .env ] && [ ! -f ~/.config/matrix-premid/.env ]; then \
-		cp .env ~/.config/matrix-premid/.env; \
-		echo "$(STYLE_CYAN)Success:$(STYLE_RESET) Copied local .env to ~/.config/matrix-premid/.env"; \
-	elif [ ! -f .env ] && [ ! -f ~/.config/matrix-premid/.env ] && [ -f .env.example ]; then \
-		cp .env.example ~/.config/matrix-premid/.env; \
-		echo "$(STYLE_CYAN)Note:$(STYLE_RESET) Created template config at ~/.config/matrix-premid/.env (Please edit it!)"; \
-	fi
 	@echo "Setting up systemd service..."
 	~/.local/bin/matrix-premid install-service
 
@@ -38,12 +30,16 @@ install: ##H Install locally and setup systemd user service
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .PHONY: test
-test:	##H Run unit tests with coverage
+test:   ##H Run unit tests with coverage
 	PYTHONPATH=src $(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
 
 .PHONY: run
-run:	##H Run the application locally
+run:    ##H Run the application locally
 	PYTHONPATH=src $(PYTHON) -m matrix_premid --debug
+
+.PHONY: start
+start: ##H Start the background systemd service
+	systemctl --user start matrix-premid.service
 
 .PHONY: restart
 restart: ##H Restart the background systemd service
