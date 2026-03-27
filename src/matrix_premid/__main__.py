@@ -57,6 +57,8 @@ def acquire_lock():
         # pylint: disable=consider-using-with
         lock_fd = open(LOCK_FILE, "w", encoding="utf-8")
         fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
         return lock_fd
     except OSError:
         print("ERROR: Another instance is already running.", file=sys.stderr)
@@ -576,15 +578,14 @@ WantedBy=default.target
         print(f"Failed to enable service: {e}", file=sys.stderr)
 
 
-async def main():
-    """Start the Matrix updater."""
-    # pylint: disable=too-many-statements,too-many-locals,too-many-branches
+def parse_args(args=None):
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Matrix Presence/PreMiD Updater")
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["install-service"],
-        help="Optional command (e.g., install-service)",
+        choices=["install-service", "daemon", "shutdown"],
+        help="Optional command (e.g., install-service, daemon, shutdown)",
     )
     parser.add_argument(
         "--debug", action="store_true", help="Enable verbose debug logging"
@@ -602,7 +603,14 @@ async def main():
         help="Manually clear status (Offline) and exit",
     )
     argcomplete.autocomplete(parser)
-    args = parser.parse_args()
+    return parser.parse_args(args)
+
+
+async def main(args=None):
+    """Start the Matrix updater."""
+    # pylint: disable=too-many-statements,too-many-locals,too-many-branches
+    if args is None:
+        args = parse_args()
 
     if args.command == "install-service":  # pragma: no cover
         install_service()
@@ -792,10 +800,71 @@ async def main():
     print("Done.")
 
 
+def daemonize():  # pragma: no cover
+    """Fork the process to run in the background."""
+    try:
+        pid = os.fork()
+        if pid > 0:
+            sys.exit(0)
+    except OSError as e:
+        print(f"Fork #1 failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    os.chdir("/")
+    os.setsid()
+    os.umask(0)
+
+    try:
+        pid = os.fork()
+        if pid > 0:
+            sys.exit(0)
+    except OSError as e:
+        print(f"Fork #2 failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        with open(os.devnull, "r", encoding="utf-8") as f:
+            os.dup2(f.fileno(), sys.stdin.fileno())
+        with open(os.devnull, "a+", encoding="utf-8") as f:
+            os.dup2(f.fileno(), sys.stdout.fileno())
+            os.dup2(f.fileno(), sys.stderr.fileno())
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+
+def shutdown_daemon():  # pragma: no cover
+    """Send SIGTERM to the running background daemon."""
+    try:
+        with open(LOCK_FILE, "r", encoding="utf-8") as f:
+            pid = int(f.read().strip())
+        os.kill(pid, signal.SIGTERM)
+        print(f"Sent shutdown signal to matrix-premid daemon (PID {pid}).")
+    except FileNotFoundError:
+        print("No matrix-premid daemon is currently running (lock file not found).")
+    except ProcessLookupError:
+        print("Daemon is not running (PID not found).")
+    except ValueError:
+        print("Invalid PID in lock file.")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print(f"Failed to shutdown daemon: {e}")
+
+
 def cli():
     """Synchronous entry point for the package."""
+    args = parse_args()
+
+    if args.command == "shutdown":  # pragma: no cover
+        shutdown_daemon()
+        return
+
+    if args.command == "daemon":  # pragma: no cover
+        print("Starting matrix-premid in the background...")
+        daemonize()
+
     try:
-        asyncio.run(main())
+        asyncio.run(main(args))
     except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         pass
 
