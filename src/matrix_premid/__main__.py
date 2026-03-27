@@ -779,6 +779,9 @@ async def main(args=None):
     for t in tasks:
         t.cancel()
 
+    # Wait for tasks to acknowledge cancellation
+    await asyncio.gather(*tasks, return_exceptions=True)
+
     print(
         f"Clearing Matrix status before exit for {len(updaters)} accounts...",
         flush=True,
@@ -798,6 +801,12 @@ async def main(args=None):
 
     for u in updaters:
         await u.close()
+
+    # Clean up lock file so next start works cleanly
+    try:
+        os.unlink(LOCK_FILE)
+    except OSError:
+        pass
 
     print("Done.")
 
@@ -829,9 +838,6 @@ def daemonize():  # pragma: no cover
     try:
         with open(os.devnull, "r", encoding="utf-8") as f:
             os.dup2(f.fileno(), sys.stdin.fileno())
-        with open(os.devnull, "a+", encoding="utf-8") as f:
-            os.dup2(f.fileno(), sys.stdout.fileno())
-            os.dup2(f.fileno(), sys.stderr.fileno())
     except Exception:  # pylint: disable=broad-exception-caught
         pass
 
