@@ -23,6 +23,11 @@ import keyring
 from nio import Api, AsyncClient
 from nio.responses import EmptyResponse, ErrorResponse, PresenceSetResponse
 
+try:
+    from matrix_premid._version import __version__
+except ImportError:  # pragma: no cover
+    __version__ = "unknown"
+
 PROVIDERS = {
     "youtube music": "YouTube Music",
     "yt music": "YouTube Music",
@@ -180,9 +185,9 @@ class MatrixStatusUpdater:
 
             if is_exit:
                 payload_p = {
-                    "presence": "unavailable",  # 'Away' state
+                    "presence": "offline",
                     "currently_active": False,
-                    "status_msg": "Idle",
+                    "status_msg": "",
                 }
             else:
                 payload_p = {
@@ -202,9 +207,7 @@ class MatrixStatusUpdater:
             full_path_s = Api._build_path(
                 path_s, {"access_token": self.client.access_token}
             )
-            if is_exit:
-                payload_s = {"status": "Idle"}
-            elif activity == "Idle" or not activity:
+            if is_exit or activity == "Idle" or not activity:
                 payload_s = {}
             else:
                 payload_s = {"status": activity}
@@ -581,13 +584,10 @@ async def main():
         "--debug", action="store_true", help="Enable verbose debug logging"
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable verbose output"
-    )
-    parser.add_argument(
         "--unset",
         "--clear",
         action="store_true",
-        help="Manually clear status to Idle and exit",
+        help="Manually clear status (Offline) and exit",
     )
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
@@ -645,6 +645,7 @@ async def main():
                 sys.exit(1)
 
     updaters = []
+    is_debug = args.debug
     for account in accounts:
         updaters.append(
             MatrixStatusUpdater(
@@ -654,12 +655,13 @@ async def main():
                 device_id=account.get("device_id", ""),
                 idle_timeout=idle_timeout,
                 poll_interval=poll_interval,
+                verbose=is_debug,
             )
         )
 
     if args.unset:
         print(
-            f"Manual status clear requested (Idle) for {len(updaters)} accounts...",
+            f"Manual status clear requested (Offline) for {len(updaters)} accounts...",
             flush=True,
         )
         try:

@@ -51,6 +51,7 @@ filterwarnings = [
 [tool.coverage.run]
 source = ["matrix_premid"]
 branch = true
+omit = ["src/matrix_premid/_version.py"]
 
 [tool.coverage.report]
 fail_under = 80.00
