@@ -146,10 +146,11 @@ class MatrixStatusUpdater:
             else:
                 self.idle_strikes = 0
 
-            if is_new and not is_exit:
+            if is_new or is_exit:
+                activity_str = "Offline" if is_exit else activity
                 print(
                     f"[{self.client.user_id}] Matrix Status "
-                    f"[{self.current_presence}] -> {activity}",
+                    f"[{self.current_presence}] -> {activity_str}",
                     flush=True,
                 )
 
@@ -768,7 +769,10 @@ async def main():
     for t in tasks:
         t.cancel()
 
-    print("Clearing Matrix status before exit...", flush=True)
+    print(
+        f"Clearing Matrix status before exit for {len(updaters)} accounts...",
+        flush=True,
+    )
     try:
         await asyncio.wait_for(
             asyncio.gather(*(u.update("", force=True, is_exit=True) for u in updaters)),
@@ -784,6 +788,8 @@ async def main():
 
     for u in updaters:
         await u.close()
+
+    print("Done.")
 
 
 def cli():
