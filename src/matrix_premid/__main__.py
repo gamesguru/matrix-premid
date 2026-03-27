@@ -55,8 +55,10 @@ def acquire_lock():
     try:
         # We need to keep the file open for the duration of the process
         # pylint: disable=consider-using-with
-        lock_fd = open(LOCK_FILE, "w", encoding="utf-8")
+        lock_fd = open(LOCK_FILE, "a+", encoding="utf-8")
+        lock_fd.seek(0)
         fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.truncate()
         lock_fd.write(str(os.getpid()))
         lock_fd.flush()
         return lock_fd
