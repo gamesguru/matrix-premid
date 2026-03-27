@@ -584,6 +584,12 @@ async def main():
         "--debug", action="store_true", help="Enable verbose debug logging"
     )
     parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show program's version number and exit",
+    )
+    parser.add_argument(
         "--unset",
         "--clear",
         action="store_true",

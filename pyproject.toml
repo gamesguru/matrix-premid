@@ -59,3 +59,5 @@ precision = 2
 show_missing = true
 skip_empty = true
 skip_covered = true
+[tool.pylint.master]
+ignore-paths = ["^src/matrix_premid/_version.py$"]
