@@ -1,0 +1,11 @@
+{
+  "accounts": [
+    {
+      "homeserver": "https://matrix.org",
+      "username": "@user:matrix.org",
+      "device_id": ""
+    }
+  ],
+  "idle_timeout": 15,
+  "poll_interval": 5
+}

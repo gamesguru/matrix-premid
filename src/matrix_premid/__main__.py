@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import fcntl
 import html
+import json
 import logging
 import os
 import shutil
@@ -18,7 +19,7 @@ import signal
 import sys
 
 import argcomplete
-from dotenv import load_dotenv
+import keyring
 from nio import Api, AsyncClient
 from nio.responses import EmptyResponse, ErrorResponse, PresenceSetResponse
 
@@ -40,17 +41,6 @@ VIDEO_PROVIDERS = {"Netflix", "Plex", "Twitch", "YouTube"}
 
 SEP_STR = "_||_"
 
-# Load environment variables
-_cwd_env = os.path.join(os.getcwd(), ".env")
-_config_env = os.path.expanduser("~/.config/matrix-premid/.env")
-
-if os.path.exists(_config_env):
-    load_dotenv(dotenv_path=_config_env)
-elif os.path.exists(_cwd_env):
-    load_dotenv(dotenv_path=_cwd_env)
-else:
-    load_dotenv()
-
 # Lock file to prevent multiple instances
 LOCK_FILE = os.environ.get("PREMID_LOCK_FILE", "/tmp/matrix-premid.lock")
 
@@ -68,29 +58,31 @@ def acquire_lock():
         sys.exit(1)
 
 
-# --- CONFIGURATION ---
-HOMESERVER = os.environ.get("HOMESERVER", "")
-USERNAME = os.environ.get("USERNAME", "")
-ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "")
-DEVICE_ID = os.environ.get("DEVICE_ID", "")
-# Timeout (in seconds) before actually clearing the Matrix status when idle
-IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", "15"))
-# Polling interval (in seconds) for MPRIS events
-POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))
-
-
 class MatrixStatusUpdater:
     """Manages Matrix status updates with state tracking and error handling."""
 
     # pylint: disable=too-many-instance-attributes
 
-    def __init__(self, homeserver, username, access_token, device_id=None):
+    def __init__(
+        self,
+        homeserver,
+        username,
+        access_token,
+        device_id=None,
+        idle_timeout=15,
+        poll_interval=5,
+        verbose=False,
+    ):
+        # pylint: disable=too-many-arguments,too-many-positional-arguments
         self.client = AsyncClient(homeserver, username)
         self.client.access_token = access_token
         self.client.user_id = username
         if device_id:
             self.client.device_id = device_id
 
+        self.idle_timeout = idle_timeout
+        self.poll_interval = poll_interval
+        self.verbose = verbose
         self.last_activity = ""
         self.last_title = ""
         self.last_quality = 0  # 0: Idle, 1: Basic, 2: Full (Artist)
@@ -140,9 +132,9 @@ class MatrixStatusUpdater:
 
             if activity == "Idle" and not is_exit:
                 self.idle_strikes += 1
-                max_strikes = max(1, IDLE_TIMEOUT // POLL_INTERVAL)
+                max_strikes = max(1, self.idle_timeout // self.poll_interval)
                 if self.idle_strikes < max_strikes and not force:
-                    # Debounce: wait for IDLE_TIMEOUT seconds of 'Idle'
+                    # Debounce: wait for self.idle_timeout seconds of 'Idle'
                     # before actually clearing the Matrix status, preventing
                     # flickering during gaps between songs.
                     return
@@ -151,7 +143,9 @@ class MatrixStatusUpdater:
 
             if is_new and not is_exit:
                 print(
-                    f"Matrix Status [{self.current_presence}] -> {activity}", flush=True
+                    f"[{self.client.user_id}] Matrix Status "
+                    f"[{self.current_presence}] -> {activity}",
+                    flush=True,
                 )
 
             if not is_exit:
@@ -221,7 +215,11 @@ class MatrixStatusUpdater:
                     payload_p["currently_active"],
                     payload_p.get("status_msg", ""),
                 )
-                print(f"DEBUG: Req 1/2 (presence={p}, active={c}, msg='{m}')")
+                if self.verbose:  # pragma: no cover
+                    print(
+                        f"DEBUG [{self.client.user_id}]: Req 1/2 "
+                        f"(presence={p}, active={c}, msg='{m}')"
+                    )
                 try:
                     resp = await asyncio.wait_for(
                         self.client._send(
@@ -234,14 +232,30 @@ class MatrixStatusUpdater:
                     )
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
                         msg = getattr(resp, "message", resp)
-                        print(f"ERROR: presence failed: {msg}", file=sys.stderr)
+                        print(
+                            f"ERROR [{self.client.user_id}]: presence failed: {msg}",
+                            file=sys.stderr,
+                        )
                     else:
-                        print("DEBUG: Req 1/2 finished (presence)")
+                        if self.verbose:  # pragma: no cover
+                            print(
+                                f"DEBUG [{self.client.user_id}]: Req 1/2 "
+                                "finished (presence)"
+                            )
                 except asyncio.TimeoutError:
-                    print("DEBUG: Req 1/2 timeout (presence)", file=sys.stderr)
+                    if self.verbose:  # pragma: no cover
+                        print(
+                            f"DEBUG [{self.client.user_id}]: Req 1/2 "
+                            "timeout (presence)",
+                            file=sys.stderr,
+                        )
 
             async def send_status():
-                print(f"DEBUG: Req 2/2 (im.vector.user_status, content={payload_s})")
+                if self.verbose:  # pragma: no cover
+                    print(
+                        f"DEBUG [{self.client.user_id}]: Req 2/2 "
+                        f"(im.vector.user_status, content={payload_s})"
+                    )
                 try:
                     resp = await asyncio.wait_for(
                         self.client._send(
@@ -254,11 +268,24 @@ class MatrixStatusUpdater:
                     )
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
                         msg = getattr(resp, "message", resp)
-                        print(f"ERROR: account_data failed: {msg}", file=sys.stderr)
+                        print(
+                            f"ERROR [{self.client.user_id}]: "
+                            f"account_data failed: {msg}",
+                            file=sys.stderr,
+                        )
                     else:
-                        print("DEBUG: Req 2/2 finished (account_data)")
+                        if self.verbose:  # pragma: no cover
+                            print(
+                                f"DEBUG [{self.client.user_id}]: Req 2/2 "
+                                "finished (account_data)"
+                            )
                 except asyncio.TimeoutError:
-                    print("DEBUG: Req 2/2 timeout (account_data)", file=sys.stderr)
+                    if self.verbose:  # pragma: no cover
+                        print(
+                            f"DEBUG [{self.client.user_id}]: Req 2/2 "
+                            "timeout (account_data)",
+                            file=sys.stderr,
+                        )
 
             await asyncio.gather(send_presence(), send_status())
 
@@ -437,7 +464,7 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     return best_activity, best_title
 
 
-async def monitor_mpris(updater: MatrixStatusUpdater):
+async def monitor_mpris(updaters: list[MatrixStatusUpdater], poll_interval: int):
     """Monitor MPRIS events via playerctl by polling all players."""
     while True:
         try:
@@ -460,17 +487,18 @@ async def monitor_mpris(updater: MatrixStatusUpdater):
             stdout, _ = await process.communicate()
             if stdout:
                 lines = stdout.decode("utf-8").strip().splitlines()
-                if "--debug" in sys.argv:
+                if updaters and updaters[0].verbose:  # pragma: no cover
                     print(f"DEBUG: raw playerctl lines: {lines}", flush=True)
                 activity, title = _get_best_mpris_activity(lines)
-                await updater.update(activity, title=title)
+                for updater in updaters:
+                    await updater.update(activity, title=title)
 
         except asyncio.CancelledError:
             break
         except (OSError, ValueError) as e:
             print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
 
-        await asyncio.sleep(POLL_INTERVAL)
+        await asyncio.sleep(poll_interval)
 
 
 def install_service():
@@ -507,11 +535,26 @@ WantedBy=default.target
 
     app_config_dir = os.path.expanduser("~/.config/matrix-premid")
     os.makedirs(app_config_dir, exist_ok=True)
-    env_file = os.path.join(app_config_dir, ".env")
-    if not os.path.exists(env_file):
-        with open(env_file, "w", encoding="utf-8") as f:
-            f.write("HOMESERVER=\nUSERNAME=\nACCESS_TOKEN=\nDEVICE_ID=\n")
-        print(f"Created empty config at {env_file} (Please edit!)")
+    config_file = os.path.join(app_config_dir, "config.json")
+    if not os.path.exists(config_file):
+        sample_config = {
+            "accounts": [
+                {
+                    "homeserver": "https://matrix.org",
+                    "username": "@user:matrix.org",
+                    "device_id": "",
+                }
+            ],
+            "idle_timeout": 15,
+            "poll_interval": 5,
+        }
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump(sample_config, f, indent=4)
+        print(f"Created empty config at {config_file} (Please edit!)")
+        print(
+            "Note: Store your access token using keyring: "
+            "python -m keyring set matrix-premid @user:matrix.org"
+        )
 
     try:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
@@ -526,7 +569,7 @@ WantedBy=default.target
 
 async def main():
     """Start the Matrix updater."""
-    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-statements,too-many-locals,too-many-branches
     parser = argparse.ArgumentParser(description="Matrix Presence/PreMiD Updater")
     parser.add_argument(
         "command",
@@ -536,6 +579,9 @@ async def main():
     )
     parser.add_argument(
         "--debug", action="store_true", help="Enable verbose debug logging"
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
     parser.add_argument(
         "--unset",
@@ -559,37 +605,87 @@ async def main():
         print("ERROR: playerctl command not found. Please install it.", file=sys.stderr)
         sys.exit(1)
 
-    if not all([HOMESERVER, USERNAME, ACCESS_TOKEN]):
+    accounts = []
+    idle_timeout = 15
+    poll_interval = 5
+
+    # Load configuration
+    config_file = os.path.expanduser("~/.config/matrix-premid/config.json")
+    if not os.path.exists(config_file):
         print(
-            "ERROR: Missing configuration. Please ensure you have a .env file at:\n"
-            "  ~/.config/matrix-premid/.env\n"
-            "or in your current directory.",
+            "ERROR: Missing configuration. Please run 'matrix-premid install-service' "
+            "to create a config.json template.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    updater = MatrixStatusUpdater(
-        HOMESERVER, USERNAME, ACCESS_TOKEN, device_id=DEVICE_ID
-    )
+    with open(config_file, "r", encoding="utf-8") as f:
+        config = json.load(f)
+        accounts = config.get("accounts", [])
+        idle_timeout = config.get("idle_timeout", 15)
+        poll_interval = config.get("poll_interval", 5)
+
+    if not accounts:
+        print("ERROR: No accounts defined in config.json.", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve tokens from keyring if missing
+    for account in accounts:
+        if not account.get("access_token"):
+            token = keyring.get_password("matrix-premid", account["username"])
+            if token:
+                account["access_token"] = token
+            else:
+                print(
+                    f"ERROR: Missing access token for {account['username']}. "
+                    "Set it using: python -m keyring set matrix-premid "
+                    f"{account['username']}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+    updaters = []
+    for account in accounts:
+        updaters.append(
+            MatrixStatusUpdater(
+                account["homeserver"],
+                account["username"],
+                account["access_token"],
+                device_id=account.get("device_id", ""),
+                idle_timeout=idle_timeout,
+                poll_interval=poll_interval,
+            )
+        )
 
     if args.unset:
-        print("Manual status clear requested (Idle)...", flush=True)
+        print(
+            f"Manual status clear requested (Idle) for {len(updaters)} accounts...",
+            flush=True,
+        )
         try:
+            # Update all accounts to idle concurrently
             await asyncio.wait_for(
-                updater.update("", force=True, is_exit=True), timeout=10.0
+                asyncio.gather(
+                    *(u.update("", force=True, is_exit=True) for u in updaters)
+                ),
+                timeout=10.0,
             )
             await asyncio.sleep(0.5)
+            print(f"Successfully cleared status for {len(updaters)} accounts.")
         except asyncio.CancelledError:
             pass
-        # pylint: disable=broad-exception-caught
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"ERROR: Manual clear failed: {e}", file=sys.stderr)
-        await updater.close()
+
+        for u in updaters:
+            await u.close()
         return
 
     # pylint: disable=unused-variable
     lock_fd = acquire_lock()  # noqa: F841
-    print(f"Matrix User: {USERNAME} on {HOMESERVER}", flush=True)
+
+    users_str = ", ".join([a["username"] for a in accounts])
+    print(f"Matrix Users: {users_str}", flush=True)
 
     shutdown_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -604,38 +700,41 @@ async def main():
     except NotImplementedError:  # pragma: no cover
         pass
 
-    async def keep_alive():
+    async def keep_alive(updater: MatrixStatusUpdater):
         """Keep status online."""
 
         async def sync_loop():  # pragma: no cover
             while True:
                 try:
-                    # Sync with set_presence="online" to brutally override Nheko
-                    # hiding the 'Busy' (dnd) state.
                     resp = await updater.client.sync(timeout=30, set_presence="online")
                     if isinstance(resp, ErrorResponse):  # pragma: no cover
                         msg = getattr(resp, "message", resp)
-                        print(f"ERROR: sync failed: {msg}", file=sys.stderr)
-                        if "--debug" in sys.argv:
+                        print(
+                            f"ERROR: sync failed for {updater.client.user_id}: {msg}",
+                            file=sys.stderr,
+                        )
+                        if updater.verbose:  # pragma: no cover
                             print(
-                                f"DEBUG sync error resp: {vars(resp)}", file=sys.stderr
+                                f"DEBUG [{updater.client.user_id}]: "
+                                f"sync error resp: {vars(resp)}",
+                                file=sys.stderr,
                             )
                         if getattr(resp, "status_code", 0) in (401, 403):
-                            print("ERROR: Unauthorized. Exiting.", file=sys.stderr)
+                            print(
+                                f"ERROR: Unauthorized for {updater.client.user_id}. "
+                                "Exiting.",
+                                file=sys.stderr,
+                            )
                             shutdown_event.set()
                             break
-                    # We no longer read event.presence to inherit 'dnd'/'busy'
-                    # because the user explicitly wants to be forced Online.
                     if updater.current_presence != "online":
                         updater.current_presence = "online"
                 except asyncio.CancelledError:
                     break
-                except (
-                    # pylint: disable=broad-exception-caught # pragma: no cover
-                    Exception
-                ) as e:
+                except Exception as e:  # pylint: disable=broad-exception-caught
                     print(
-                        f"ERROR: sync loop exception: {type(e).__name__} - {e}",
+                        f"ERROR: sync loop exception ({updater.client.user_id}): "
+                        f"{type(e).__name__} - {e}",
                         file=sys.stderr,
                     )
                     await asyncio.sleep(5)
@@ -645,10 +744,9 @@ async def main():
     print("Listening for MPRIS events...", flush=True)
 
     # Run tasks in background
-    tasks = [
-        asyncio.create_task(monitor_mpris(updater)),
-        asyncio.create_task(keep_alive()),
-    ]
+    tasks = [asyncio.create_task(monitor_mpris(updaters, poll_interval))]
+    for u in updaters:
+        tasks.append(asyncio.create_task(keep_alive(u)))
 
     # Wait for a shutdown signal
     await shutdown_event.wait()
@@ -660,7 +758,8 @@ async def main():
     print("Clearing Matrix status before exit...", flush=True)
     try:
         await asyncio.wait_for(
-            updater.update("", force=True, is_exit=True), timeout=5.0
+            asyncio.gather(*(u.update("", force=True, is_exit=True) for u in updaters)),
+            timeout=5.0,
         )
         # Give nio a moment to actually flush the requests to the network
         await asyncio.sleep(0.5)
@@ -670,7 +769,8 @@ async def main():
     ):
         pass
 
-    await updater.close()
+    for u in updaters:
+        await u.close()
 
 
 def cli():

@@ -123,7 +123,7 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
         updater = MatrixStatusUpdater("mock", "mock", "mock")
         updater.update = AsyncMock()
         try:
-            await monitor_mpris(updater)
+            await monitor_mpris([updater], 5)
         except Exception:  # pylint: disable=broad-exception-caught
             pass
         updater.update.assert_awaited_with(
@@ -134,12 +134,8 @@ async def test_monitor_mpris_picks_best_activity(mock_exec):
 @pytest.mark.asyncio
 @patch("matrix_premid.__main__.sys.exit")
 @patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
-@patch("matrix_premid.__main__.acquire_lock")
-@patch("matrix_premid.__main__.HOMESERVER", None)
-@patch("matrix_premid.__main__.USERNAME", None)
-@patch("matrix_premid.__main__.ACCESS_TOKEN", None)
-@patch("matrix_premid.__main__.AsyncClient")
-async def test_main_missing_env(_mock_client, _mock_lock, _mock_which, mock_exit):
+@patch("matrix_premid.__main__.os.path.exists", return_value=False)
+async def test_main_missing_env(_mock_exists, _mock_which, mock_exit):
     """Test main script breaks when Env details are lacking."""
     mock_exit.side_effect = SystemExit()
     with patch("sys.argv", ["matrix_premid.py"]):
@@ -154,12 +150,23 @@ async def test_main_missing_env(_mock_client, _mock_lock, _mock_which, mock_exit
 @patch("matrix_premid.__main__.sys.exit")
 @patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
 @patch("matrix_premid.__main__.acquire_lock")
-@patch("matrix_premid.__main__.HOMESERVER", "mock")
-@patch("matrix_premid.__main__.USERNAME", "@user")
-@patch("matrix_premid.__main__.ACCESS_TOKEN", "tok")
-@patch("matrix_premid.__main__.DEVICE_ID", "dev")
-async def test_main_execution_mocked_gather(_mock_lock, _mock_which, mock_exit):
+@patch("matrix_premid.__main__.os.path.exists", return_value=True)
+@patch("matrix_premid.__main__.json.load")
+@patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token")
+@patch("matrix_premid.__main__.open", new_callable=MagicMock)
+async def test_main_execution_mocked_gather(
+    _mock_open,
+    _mock_keyring,
+    mock_json,
+    _mock_exists,
+    _mock_lock,
+    _mock_which,
+    mock_exit,
+):
     """Test main entrypoint setups everything cleanly resolving without errors."""
+    mock_json.return_value = {
+        "accounts": [{"homeserver": "mock", "username": "@user", "device_id": "dev"}]
+    }
     with patch("matrix_premid.__main__.AsyncClient") as mock_client:
         mock_instance = AsyncMock()
         mock_client.return_value = mock_instance
@@ -209,9 +216,17 @@ async def test_main_debug_flag():
     """Test the --debug flag in main sets log level."""
     with (
         patch("sys.argv", ["matrix_premid.py", "--debug"]),
+        patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl"),
         patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
         patch("matrix_premid.__main__.logging.getLogger") as mock_get_logger,
         patch("matrix_premid.__main__.acquire_lock") as mock_lock,
+        patch("matrix_premid.__main__.os.path.exists", return_value=True),
+        patch("matrix_premid.__main__.open", new_callable=MagicMock),
+        patch(
+            "matrix_premid.__main__.json.load",
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
+        ),
+        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
 
         mock_updater = AsyncMock()
@@ -237,6 +252,13 @@ async def test_main_unset_flag():
     with (
         patch("sys.argv", ["matrix_premid.py", "--unset"]),
         patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
+        patch("matrix_premid.__main__.os.path.exists", return_value=True),
+        patch("matrix_premid.__main__.open", new_callable=MagicMock),
+        patch(
+            "matrix_premid.__main__.json.load",
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
+        ),
+        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
         mock_updater = AsyncMock()
         mock_updater_class.return_value = mock_updater

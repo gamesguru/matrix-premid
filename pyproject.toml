@@ -14,8 +14,8 @@ authors = [
 ]
 dependencies = [
     "matrix-nio>=0.25.2",
-    "python-dotenv>=1.2.2",
-    "argcomplete>=3.5.3"
+    "argcomplete>=3.5.3",
+    "keyring>=24.0.0"
 ]
 
 [project.scripts]
