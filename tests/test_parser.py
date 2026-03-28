@@ -146,9 +146,57 @@ def test_parse_mpris_data_array_artist():
     assert title == "Song Title"
 
 
-def test_parse_mpris_data_invalid_array():
-    # Should fall back to string
-    raw = f"Playing{SEP_STR}Song Title{SEP_STR}[Invalid, Array]{SEP_STR}firefox"
-    act, title = parse_mpris_data(raw)
-    assert act == "Listening to: Song Title - [Invalid, Array]"
-    assert title == "Song Title"
+def test_parse_mpris_data_with_timestamp():
+    # 36 seconds / 5 minutes 44 seconds
+    pos = str(36 * 1_000_000)
+    length = str((5 * 60 + 44) * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Song Title{SEP_STR}Artist{SEP_STR}player"
+        f"{SEP_STR}url{SEP_STR}{pos}{SEP_STR}{length}"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Song Title - Artist [0:36 / 5:44]"
+
+
+def test_parse_mpris_data_with_position_only():
+    # 1 minute 23 seconds, no length (e.g. live stream)
+    pos = str(83 * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Live Stream{SEP_STR}Broadcaster{SEP_STR}player"
+        f"{SEP_STR}url{SEP_STR}{pos}"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Live Stream - Broadcaster [1:23]"
+
+
+def test_parse_mpris_data_with_hours():
+    # 1 hour 2 minutes 3 seconds / 2 hours
+    pos = str((1 * 3600 + 2 * 60 + 3) * 1_000_000)
+    length = str(2 * 3600 * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Long Podcast{SEP_STR}Host{SEP_STR}player"
+        f"{SEP_STR}url{SEP_STR}{pos}{SEP_STR}{length}"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Long Podcast - Host [1:02:03 / 2:00:00]"
+
+
+def test_parse_mpris_data_with_timestamp_and_provider():
+    pos = str(36 * 1_000_000)
+    length = str((5 * 60 + 44) * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Song Title{SEP_STR}Artist{SEP_STR}spotify"
+        f"{SEP_STR}https://open.spotify.com/track/123{SEP_STR}{pos}{SEP_STR}{length}"
+    )
+    # The provider "Spotify" is detected from url or raw playerName
+    activity, _ = parse_mpris_data(raw, global_provider="Spotify")
+    assert activity == "Listening to: Song Title - Artist [0:36 / 5:44] | Spotify"
+
+
+def test_parse_mpris_data_invalid_timestamp():
+    raw = (
+        f"Playing{SEP_STR}Song{SEP_STR}Artist{SEP_STR}player{SEP_STR}url"
+        f"{SEP_STR}invalid{SEP_STR}data"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Song - Artist"

@@ -314,10 +314,28 @@ def _clean_suffixes(title: str, artist: str) -> tuple[str, str]:
     return norm_title, norm_artist
 
 
+def _format_duration(microseconds: str) -> str:
+    """Format microseconds into M:SS or H:MM:SS."""
+    try:
+        if not microseconds or microseconds == "0":
+            return ""
+        total_seconds = int(microseconds) // 1_000_000
+        if total_seconds < 0:
+            return ""
+        minutes, seconds = divmod(total_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes}:{seconds:02d}"
+    except (ValueError, TypeError, OverflowError):
+        return ""
+
+
 def parse_mpris_data(
     data: str, global_provider: str = "", url: str = ""
 ) -> tuple[str, str]:
     """Parse playerctl data into (activity_string, normalized_title)."""
+    # pylint: disable=too-many-locals
     # Browsers often double-escape MPRIS metadata, so we unescape aggressively
     data = html.unescape(html.unescape(data))
     data = data.replace("&quot;", '"').replace("&apos;", "'").replace("&#39;", "'")
@@ -376,6 +394,21 @@ def parse_mpris_data(
     activity = f"{prefix} {norm_title}"
     if clean_artist:
         activity += f" - {clean_artist}"
+
+    # Playback timestamp (e.g. [0:36 / 5:44])
+    pos_raw = parts[5] if len(parts) > 5 else ""
+    len_raw = parts[6] if len(parts) > 6 else ""
+    pos_str = _format_duration(pos_raw)
+    len_str = _format_duration(len_raw)
+
+    timestamp = ""
+    if pos_str and len_str:
+        timestamp = f" [{pos_str} / {len_str}]"
+    elif pos_str:
+        timestamp = f" [{pos_str}]"
+
+    if timestamp:
+        activity += timestamp
 
     if global_provider and global_provider not in activity:
         activity += f" | {global_provider}"
@@ -461,7 +494,9 @@ async def monitor_mpris(updaters: list[MatrixStatusUpdater], poll_interval: int)
                 "metadata",
                 "--format",
                 f"{{{{status}}}}{SEP_STR}{{{{title}}}}{SEP_STR}"
-                f"{{{{artist}}}}{SEP_STR}{{{{playerName}}}}{SEP_STR}{{{{xesam:url}}}}",
+                f"{{{{artist}}}}{SEP_STR}{{{{playerName}}}}"
+                f"{SEP_STR}{{{{xesam:url}}}}{SEP_STR}"
+                f"{{{{position}}}}{SEP_STR}{{{{mpris:length}}}}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
