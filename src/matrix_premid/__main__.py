@@ -557,8 +557,13 @@ def parse_args(args=None):
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["install-service", "daemon", "shutdown"],
-        help="Optional command (e.g., install-service, daemon, shutdown)",
+        choices=["install-service", "daemon", "shutdown", "set"],
+        help="Optional command (e.g., install-service, daemon, shutdown, set)",
+    )
+    parser.add_argument(
+        "status_args",
+        nargs="*",
+        help="Status message for the 'set' command",
     )
     parser.add_argument(
         "--debug", action="store_true", help="Enable verbose debug logging"
@@ -651,6 +656,32 @@ async def main(args=None):
                 verbose=is_debug,
             )
         )
+
+    if args.command == "set":
+        status_msg = " ".join(args.status_args)
+        if not status_msg:
+            print("ERROR: 'set' command requires a status message.", file=sys.stderr)
+            for u in updaters:
+                await u.close()
+            sys.exit(1)
+
+        print(
+            f"Setting status to: '{status_msg}' for {len(updaters)} accounts...",
+            flush=True,
+        )
+        try:
+            # We call send_update directly to ensure it finishes before we exit
+            await asyncio.wait_for(
+                asyncio.gather(*(u.send_update(status_msg) for u in updaters)),
+                timeout=10.0,
+            )
+            print("Successfully updated status.")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            print(f"ERROR: manual set failed: {e}", file=sys.stderr)
+
+        for u in updaters:
+            await u.close()
+        return
 
     if args.unset:
         print(

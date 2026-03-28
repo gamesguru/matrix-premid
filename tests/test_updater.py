@@ -3,6 +3,7 @@
 # pylint: disable=protected-access,no-member,redefined-outer-name,broad-exception-caught
 
 import asyncio
+import logging
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,23 +21,27 @@ from matrix_premid.__main__ import (
 @pytest.fixture(autouse=True)
 def patch_sleep():
     """Bypass asyncio.sleep delays globally for fast test execution."""
-    with patch("asyncio.sleep", new_callable=AsyncMock) as m:
-        yield m
+    # We use a regular Mock that returns a pre-awaited future to avoid AsyncMock leaks
+    f = asyncio.Future()
+    f.set_result(None)
+    with patch("asyncio.sleep", return_value=f):
+        yield
 
 
 @pytest_asyncio.fixture
 async def matrix_updater_obj():
     """Fixture to provide a MatrixStatusUpdater and ensure it's closed."""
     u = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
-    yield u
-    if u._update_task and not u._update_task.done():
-        u._update_task.cancel()
-        try:
-            await u._update_task
-        except (asyncio.CancelledError, Exception):
-            pass
-    await u.close()
-
+    try:
+        yield u
+    finally:
+        if u._update_task and not u._update_task.done():
+            u._update_task.cancel()
+            try:
+                await u._update_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        await u.close()
 
 def test_updater_init():
     """Test the updater initializes correctly."""
@@ -50,16 +55,16 @@ def test_updater_init():
 @pytest.mark.asyncio
 async def test_updater_update(matrix_updater_obj):
     """Test pushing presence state to the Matrix room."""
-    with patch.object(
-        matrix_updater_obj, "_get_session", new_callable=AsyncMock
-    ) as mock_get_session:
-        mock_session = MagicMock()
-        mock_resp = AsyncMock()
-        mock_resp.status = 200
-        mock_resp.text = AsyncMock(return_value="OK")
-        mock_session.put.return_value.__aenter__.return_value = mock_resp
-        mock_get_session.return_value = mock_session
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.text = AsyncMock(return_value="OK")
 
+    mock_session = MagicMock()
+    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+
+    with patch.object(
+        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
+    ):
         await matrix_updater_obj.update("Listening to: Song | YT Music")
         await matrix_updater_obj._update_task
 
@@ -75,16 +80,15 @@ async def test_updater_update(matrix_updater_obj):
 @pytest.mark.asyncio
 async def test_updater_update_paused(matrix_updater_obj):
     """Test a paused song yields presence correctly."""
-    with patch.object(
-        matrix_updater_obj, "_get_session", new_callable=AsyncMock
-    ) as mock_get_session:
-        mock_session = MagicMock()
-        mock_resp = AsyncMock()
-        mock_resp.status = 200
-        mock_resp.text = AsyncMock(return_value="OK")
-        mock_session.put.return_value.__aenter__.return_value = mock_resp
-        mock_get_session.return_value = mock_session
+    mock_resp = MagicMock()
+    mock_resp.status = 200
 
+    mock_session = MagicMock()
+    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+
+    with patch.object(
+        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
+    ):
         await matrix_updater_obj.update("Paused: Song - Artist | YT Music")
         await matrix_updater_obj._update_task
         assert mock_session.put.call_count >= 1
@@ -100,16 +104,15 @@ async def test_updater_update_empty(matrix_updater_obj):
 @pytest.mark.asyncio
 async def test_updater_update_other(matrix_updater_obj):
     """Test non-music activities receive correct base quality attributes."""
-    with patch.object(
-        matrix_updater_obj, "_get_session", new_callable=AsyncMock
-    ) as mock_get_session:
-        mock_session = MagicMock()
-        mock_resp = AsyncMock()
-        mock_resp.status = 200
-        mock_resp.text = AsyncMock(return_value="OK")
-        mock_session.put.return_value.__aenter__.return_value = mock_resp
-        mock_get_session.return_value = mock_session
+    mock_resp = MagicMock()
+    mock_resp.status = 200
 
+    mock_session = MagicMock()
+    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+
+    with patch.object(
+        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
+    ):
         await matrix_updater_obj.update("Watching: Movie", title="Movie")
         await matrix_updater_obj._update_task
         assert mock_session.put.call_count >= 1
@@ -118,13 +121,12 @@ async def test_updater_update_other(matrix_updater_obj):
 @pytest.mark.asyncio
 async def test_updater_update_exception(matrix_updater_obj):
     """Test updating surviving network errors."""
-    with patch.object(
-        matrix_updater_obj, "_get_session", new_callable=AsyncMock
-    ) as mock_get_session:
-        mock_session = MagicMock()
-        mock_session.put.side_effect = Exception("Network Error")
-        mock_get_session.return_value = mock_session
+    mock_session = MagicMock()
+    mock_session.put.side_effect = Exception("Network Error")
 
+    with patch.object(
+        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
+    ):
         await matrix_updater_obj.update("Listening to: Song")
         await matrix_updater_obj._update_task
         # Should not crash despite the network error
@@ -144,21 +146,23 @@ async def test_updater_update_same_song_ignored(matrix_updater_obj):
 @patch("matrix_premid.__main__.asyncio.create_subprocess_exec")
 async def test_monitor_mpris_picks_best_activity(mock_exec, matrix_updater_obj):
     """Test MPRIS subprocess parsing defaults best output cleanly."""
-    mock_proc = AsyncMock()
-    mock_proc.communicate.side_effect = [
-        (
-            f"Playing{SEP_STR}Awesome Song{SEP_STR}"
-            f"Awesome Artist{SEP_STR}firefox\n".encode("utf-8"),
-            b"",
-        ),
-        Exception("Break loop"),
-    ]
+    mock_proc = MagicMock()
+    mock_proc.communicate = AsyncMock(
+        side_effect=[
+            (
+                f"Playing{SEP_STR}Awesome Song{SEP_STR}"
+                f"Awesome Artist{SEP_STR}firefox\n".encode("utf-8"),
+                b"",
+            ),
+            Exception("Break loop"),
+        ]
+    )
     mock_exec.return_value = mock_proc
 
     matrix_updater_obj.update = AsyncMock()
     try:
         await monitor_mpris([matrix_updater_obj], 5)
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception:
         pass
     matrix_updater_obj.update.assert_awaited_with(
         "Listening to: Awesome Song - Awesome Artist", title="Awesome Song"
@@ -202,23 +206,31 @@ async def test_main_execution_mocked_gather(
         "accounts": [{"homeserver": "mock", "username": "@user", "device_id": "dev"}]
     }
 
-    with patch("matrix_premid.__main__.asyncio.Event.wait", new_callable=AsyncMock):
+    def mock_create_task_side_effect(coro):
+        coro.close()
+        return MagicMock(spec=asyncio.Task)
+
+    with (
+        patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock()),
+        patch(
+            "matrix_premid.__main__.asyncio.create_task",
+            side_effect=mock_create_task_side_effect,
+        ),
+        patch("matrix_premid.__main__.asyncio.gather", AsyncMock()),
+    ):
         with patch(
             "matrix_premid.__main__.MatrixStatusUpdater.update",
-            new_callable=AsyncMock,
-        ) as mock_update:
-            mock_update.side_effect = asyncio.CancelledError()
-
+            AsyncMock(side_effect=asyncio.CancelledError()),
+        ):
             with patch(
                 "matrix_premid.__main__.asyncio.create_subprocess_exec"
             ) as mock_exec:
-                mock_proc = AsyncMock()
-                mock_proc.communicate.side_effect = asyncio.CancelledError()
+                mock_proc = MagicMock()
+                mock_proc.communicate = AsyncMock(side_effect=asyncio.CancelledError())
                 mock_exec.return_value = mock_proc
 
                 with patch("sys.argv", ["matrix_premid.py"]):
                     await main()
-    # Use unused vars assertions to cleanly please pylint explicitly
     mock_exit.assert_not_called()
 
 
@@ -252,18 +264,79 @@ async def test_main_debug_flag():
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
 
-        mock_updater = AsyncMock()
+        mock_updater = MagicMock(spec=MatrixStatusUpdater)
+        mock_updater.send_update = AsyncMock()
+        mock_updater.close = AsyncMock()
         mock_updater_class.return_value = mock_updater
         mock_lock.return_value = MagicMock()
 
-        # Mocking wait/gather to exit immediately
+        def mock_create_task_side_effect(coro):
+            coro.close()
+            return MagicMock(spec=asyncio.Task)
+
+        # Mocking wait/create_task/gather to exit immediately
         with (
-            patch("matrix_premid.__main__.asyncio.Event.wait", new_callable=AsyncMock),
-            patch("matrix_premid.__main__.asyncio.gather", new_callable=AsyncMock),
+            patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock()),
+            patch(
+                "matrix_premid.__main__.asyncio.create_task",
+                side_effect=mock_create_task_side_effect,
+            ),
+            patch("matrix_premid.__main__.asyncio.gather", AsyncMock()),
         ):
             await main()
 
-        mock_config_logger.assert_called_with(level=10)  # logging.DEBUG
+        mock_config_logger.assert_called_with(level=logging.DEBUG)
+
+
+@pytest.mark.asyncio
+async def test_main_set_command():
+    """Test the manual 'set' command in main."""
+    with (
+        patch("sys.argv", ["matrix_premid.py", "set", "Working", "Hard"]),
+        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
+        patch("matrix_premid.__main__.os.path.exists", return_value=True),
+        patch("matrix_premid.__main__.open", new_callable=MagicMock),
+        patch(
+            "matrix_premid.__main__.json.load",
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
+        ),
+        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
+    ):
+        mock_updater = MagicMock(spec=MatrixStatusUpdater)
+        mock_updater.send_update = AsyncMock()
+        mock_updater.close = AsyncMock()
+        mock_updater_class.return_value = mock_updater
+
+        await main()
+
+        mock_updater.send_update.assert_awaited_with("Working Hard")
+        mock_updater.close.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_main_set_command_no_args(capsys):
+    """Test the 'set' command with no status message (error case)."""
+    with (
+        patch("sys.argv", ["matrix_premid.py", "set"]),
+        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
+        patch("matrix_premid.__main__.os.path.exists", return_value=True),
+        patch("matrix_premid.__main__.open", new_callable=MagicMock),
+        patch(
+            "matrix_premid.__main__.json.load",
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
+        ),
+        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
+        patch("sys.exit") as mock_exit,
+    ):
+        mock_updater = MagicMock(spec=MatrixStatusUpdater)
+        mock_updater.close = AsyncMock()
+        mock_updater_class.return_value = mock_updater
+
+        await main()
+
+        mock_exit.assert_called_with(1)
+        _, err = capsys.readouterr()
+        assert "ERROR: 'set' command requires a status message." in err
 
 
 @pytest.mark.asyncio
@@ -280,7 +353,9 @@ async def test_main_unset_flag():
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
-        mock_updater = AsyncMock()
+        mock_updater = MagicMock(spec=MatrixStatusUpdater)
+        mock_updater.update = AsyncMock()
+        mock_updater.close = AsyncMock()
         mock_updater_class.return_value = mock_updater
 
         await main()
@@ -302,7 +377,7 @@ async def test_updater_update_lower_quality_ignored(matrix_updater_obj):
 async def test_updater_update_resets_idle_strikes(matrix_updater_obj):
     """Test that non-idle activity resets idle strikes."""
     matrix_updater_obj.idle_strikes = 5
-    with patch.object(matrix_updater_obj, "send_update", new_callable=AsyncMock):
+    with patch.object(matrix_updater_obj, "send_update", AsyncMock()):
         await matrix_updater_obj.update("Listening to: Song")
         assert matrix_updater_obj.idle_strikes == 0
 
@@ -314,7 +389,7 @@ async def test_updater_update_cancels_existing_task(matrix_updater_obj):
     mock_task.done.return_value = False
     matrix_updater_obj._update_task = mock_task
 
-    with patch.object(matrix_updater_obj, "send_update", new_callable=AsyncMock):
+    with patch.object(matrix_updater_obj, "send_update", AsyncMock()):
         await matrix_updater_obj.update("Listening to: Song")
         mock_task.cancel.assert_called_once()
 
@@ -322,7 +397,7 @@ async def test_updater_update_cancels_existing_task(matrix_updater_obj):
 @pytest.mark.asyncio
 async def test_updater_update_exit_sends_immediately(matrix_updater_obj):
     """Test that exiting sends the update immediately without debouncing."""
-    with patch.object(matrix_updater_obj, "send_update", new_callable=AsyncMock) as mock_send:
+    with patch.object(matrix_updater_obj, "send_update", AsyncMock()) as mock_send:
         await matrix_updater_obj.update("", is_exit=True)
         mock_send.assert_awaited_once()
         assert matrix_updater_obj._update_task is None
@@ -332,16 +407,16 @@ async def test_updater_update_exit_sends_immediately(matrix_updater_obj):
 async def test_send_update_failure_logs_error(matrix_updater_obj, capsys):
     """Test that failed API requests log errors to stderr."""
     matrix_updater_obj.verbose = True
-    with patch.object(
-        matrix_updater_obj, "_get_session", new_callable=AsyncMock
-    ) as mock_get_session:
-        mock_session = MagicMock()
-        mock_resp = AsyncMock()
-        mock_resp.status = 400
-        mock_resp.text.return_value = "Bad Request"
-        mock_session.put.return_value.__aenter__.return_value = mock_resp
-        mock_get_session.return_value = mock_session
+    mock_resp = MagicMock()
+    mock_resp.status = 400
+    mock_resp.text = AsyncMock(return_value="Bad Request")
 
+    mock_session = MagicMock()
+    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+
+    with patch.object(
+        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
+    ):
         await matrix_updater_obj.send_update("Activity")
 
         _, err = capsys.readouterr()
@@ -353,13 +428,12 @@ async def test_send_update_failure_logs_error(matrix_updater_obj, capsys):
 async def test_send_update_exception_logs_debug(matrix_updater_obj, capsys):
     """Test that exceptions during API requests log to stderr if verbose."""
     matrix_updater_obj.verbose = True
-    with patch.object(
-        matrix_updater_obj, "_get_session", new_callable=AsyncMock
-    ) as mock_get_session:
-        mock_session = MagicMock()
-        mock_session.put.side_effect = Exception("Crash")
-        mock_get_session.return_value = mock_session
+    mock_session = MagicMock()
+    mock_session.put.side_effect = Exception("Crash")
 
+    with patch.object(
+        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
+    ):
         await matrix_updater_obj.send_update("Activity")
 
         _, err = capsys.readouterr()
@@ -374,10 +448,12 @@ async def test_monitor_mpris_error_handling(mock_exec, capsys):
     mock_exec.side_effect = OSError("Subprocess Error")
 
     # We need to break the infinite loop
-    with patch(
-        "matrix_premid.__main__.asyncio.sleep",
-        side_effect=[None, asyncio.CancelledError()],
-    ):
+    f1 = asyncio.Future()
+    f1.set_result(None)
+    f2 = asyncio.Future()
+    f2.set_exception(asyncio.CancelledError())
+
+    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=[f1, f2]):
         try:
             await monitor_mpris([], 1)
         except asyncio.CancelledError:
