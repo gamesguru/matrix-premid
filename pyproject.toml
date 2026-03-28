@@ -13,7 +13,7 @@ authors = [
     {name = "Shane Jaroch", email = "chown_tee@proton.me"},
 ]
 dependencies = [
-    "matrix-nio>=0.25.2",
+    "aiohttp>=3.8.0",
     "argcomplete>=3.5.3",
     "keyring>=24.0.0"
 ]

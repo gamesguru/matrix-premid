@@ -16,12 +16,12 @@ import logging
 import os
 import shutil
 import signal
+import subprocess
 import sys
 
+import aiohttp
 import argcomplete
 import keyring
-from nio import Api, AsyncClient
-from nio.responses import EmptyResponse, ErrorResponse, PresenceSetResponse
 
 try:
     from matrix_premid._version import __version__
@@ -83,11 +83,10 @@ class MatrixStatusUpdater:
         verbose=False,
     ):
         # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self.client = AsyncClient(homeserver, username)
-        self.client.access_token = access_token
-        self.client.user_id = username
-        if device_id:
-            self.client.device_id = device_id
+        self.homeserver = homeserver.rstrip("/")
+        self.username = username
+        self.access_token = access_token
+        self.device_id = device_id
 
         self.idle_timeout = idle_timeout
         self.poll_interval = poll_interval
@@ -99,10 +98,18 @@ class MatrixStatusUpdater:
         self.idle_strikes = 0
         self.lock = asyncio.Lock()
         self._update_task = None
+        self._session = None
+
+    async def _get_session(self):
+        """Create or return existing aiohttp ClientSession."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
     async def close(self):
         """Close the Matrix client session."""
-        await self.client.close()
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def update(
         self, activity: str, title: str = "", force: bool = False, is_exit: bool = False
@@ -110,7 +117,10 @@ class MatrixStatusUpdater:
         """Update Matrix presence with metadata quality filtering."""
         # pylint: disable=too-many-branches, too-many-statements, too-many-locals
         if not activity and not is_exit:
-            activity = "Idle"
+            # If no activity detected, we don't force 'Idle' immediately.
+            # We preserve the last activity unless it's explicitly 'Idle'
+            # or we are exiting.
+            return
 
         # Determine metadata quality
         quality = 0
@@ -127,7 +137,6 @@ class MatrixStatusUpdater:
 
         async with self.lock:
             # If same song but lower quality metadata, ignore it
-            # This prevents Firefox (no artist) from overriding Plasma (artist)
             if not force and not is_exit and title and title == self.last_title:
                 if quality < self.last_quality:
                     return
@@ -144,9 +153,7 @@ class MatrixStatusUpdater:
                 self.idle_strikes += 1
                 max_strikes = max(1, self.idle_timeout // self.poll_interval)
                 if self.idle_strikes < max_strikes and not force:
-                    # Debounce: wait for self.idle_timeout seconds of 'Idle'
-                    # before actually clearing the Matrix status, preventing
-                    # flickering during gaps between songs.
+                    # Debounce idle state
                     return
             else:
                 self.idle_strikes = 0
@@ -154,7 +161,7 @@ class MatrixStatusUpdater:
             if is_new or is_exit:
                 activity_str = "Offline" if is_exit else activity
                 print(
-                    f"[{self.client.user_id}] Matrix Status "
+                    f"[{self.username}] Matrix Status "
                     f"[{self.current_presence}] -> {activity_str}",
                     flush=True,
                 )
@@ -168,25 +175,27 @@ class MatrixStatusUpdater:
                 self._update_task.cancel()
 
             if is_exit:
-                await self._send_update(activity, is_exit)
+                await self.send_update(activity, is_exit)
                 return
 
             async def debounced_send():
                 if not force:
                     # Wait 2 seconds to absorb rapid metadata shifts
-                    # e.g. "Watching: X" -> "Listening to: X - Y"
                     await asyncio.sleep(2.0)
-                await self._send_update(activity, is_exit)
+                await self.send_update(activity, is_exit)
 
             self._update_task = asyncio.create_task(debounced_send())
 
-    async def _send_update(self, activity: str, is_exit: bool = False):
+    async def send_update(self, activity: str, is_exit: bool = False):
+        """Send presence and status update to Matrix."""
         try:
+            session = await self._get_session()
+            headers = {"Authorization": f"Bearer {self.access_token}"}
+
             # 1. Presence Payload
-            path_p = ["presence", self.client.user_id, "status"]
-            # pylint: disable=protected-access
-            full_path_p = Api._build_path(
-                path_p, {"access_token": self.client.access_token}
+            url_p = (
+                f"{self.homeserver}/_matrix/client/v3/presence/"
+                f"{self.username}/status"
             )
 
             if is_exit:
@@ -204,95 +213,61 @@ class MatrixStatusUpdater:
                     payload_p["status_msg"] = activity
 
             # 2. Element Status Payload
-            path_s = [
-                "user",
-                self.client.user_id,
-                "account_data",
-                "im.vector.user_status",
-            ]
-            full_path_s = Api._build_path(
-                path_s, {"access_token": self.client.access_token}
+            url_s = (
+                f"{self.homeserver}/_matrix/client/v3/user/{self.username}/"
+                "account_data/im.vector.user_status"
             )
+
             if is_exit or activity == "Idle" or not activity:
                 payload_s = {}
             else:
                 payload_s = {"status": activity}
 
             async def send_presence():
-                p, c, m = (
-                    payload_p["presence"],
-                    payload_p["currently_active"],
-                    payload_p.get("status_msg", ""),
-                )
-                if self.verbose:  # pragma: no cover
-                    print(
-                        f"DEBUG [{self.client.user_id}]: Req 1/2 "
-                        f"(presence={p}, active={c}, msg='{m}')"
-                    )
+                if self.verbose:
+                    print(f"DEBUG [{self.username}]: Req 1/2 (presence)")
                 try:
-                    resp = await asyncio.wait_for(
-                        self.client._send(
-                            PresenceSetResponse,
-                            "PUT",
-                            full_path_p,
-                            data=Api.to_json(payload_p),
-                        ),
-                        timeout=5.0 if is_exit else 10.0,
-                    )
-                    if isinstance(resp, ErrorResponse):  # pragma: no cover
-                        msg = getattr(resp, "message", resp)
-                        print(
-                            f"ERROR [{self.client.user_id}]: presence failed: {msg}",
-                            file=sys.stderr,
-                        )
-                    else:
-                        if self.verbose:  # pragma: no cover
+                    async with session.put(
+                        url_p,
+                        json=payload_p,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=5.0 if is_exit else 10.0),
+                    ) as resp:
+                        if resp.status >= 400:
+                            data = await resp.text()
                             print(
-                                f"DEBUG [{self.client.user_id}]: Req 1/2 "
-                                "finished (presence)"
+                                f"ERROR [{self.username}]: presence failed "
+                                f"({resp.status}): {data}",
+                                file=sys.stderr,
                             )
-                except asyncio.TimeoutError:
-                    if self.verbose:  # pragma: no cover
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    if self.verbose:
                         print(
-                            f"DEBUG [{self.client.user_id}]: Req 1/2 "
-                            "timeout (presence)",
+                            f"DEBUG [{self.username}]: presence error: {e}",
                             file=sys.stderr,
                         )
 
             async def send_status():
-                if self.verbose:  # pragma: no cover
-                    print(
-                        f"DEBUG [{self.client.user_id}]: Req 2/2 "
-                        f"(im.vector.user_status, content={payload_s})"
-                    )
+                if self.verbose:
+                    print(f"DEBUG [{self.username}]: Req 2/2 (account_data)")
                 try:
-                    resp = await asyncio.wait_for(
-                        self.client._send(
-                            EmptyResponse,
-                            "PUT",
-                            full_path_s,
-                            data=Api.to_json(payload_s),
-                        ),
-                        timeout=5.0 if is_exit else 10.0,
-                    )
-                    if isinstance(resp, ErrorResponse):  # pragma: no cover
-                        msg = getattr(resp, "message", resp)
-                        print(
-                            f"ERROR [{self.client.user_id}]: "
-                            f"account_data failed: {msg}",
-                            file=sys.stderr,
-                        )
-                    else:
-                        if self.verbose:  # pragma: no cover
+                    async with session.put(
+                        url_s,
+                        json=payload_s,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=5.0 if is_exit else 10.0),
+                    ) as resp:
+                        if resp.status >= 400:
+                            data = await resp.text()
                             print(
-                                f"DEBUG [{self.client.user_id}]: Req 2/2 "
-                                "finished (account_data)"
+                                f"ERROR [{self.username}]: account_data failed "
+                                f"({resp.status}): {data}",
+                                file=sys.stderr,
                             )
-                except asyncio.TimeoutError:
-                    if self.verbose:  # pragma: no cover
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    if self.verbose:
                         print(
-                            f"DEBUG [{self.client.user_id}]: Req 2/2 "
-                            "timeout (account_data)",
+                            f"DEBUG [{self.username}]: account_data error: {e}",
                             file=sys.stderr,
                         )
 
@@ -300,8 +275,7 @@ class MatrixStatusUpdater:
 
         except asyncio.CancelledError:
             pass
-        # pylint: disable=broad-exception-caught
-        except Exception as e:  # pragma: no cover
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"ERROR: Matrix update exception: {e}", file=sys.stderr)
 
 
@@ -351,7 +325,7 @@ def parse_mpris_data(
 
     parts = [p.strip() for p in data.split(SEP_STR)]
     if not parts or not parts[0]:
-        return "Idle", ""
+        return "", ""
 
     def _deep_clean(text: str) -> str:
         import ast  # pylint: disable=import-outside-toplevel
@@ -379,7 +353,7 @@ def parse_mpris_data(
     artist = _deep_clean(parts[2]) if len(parts) > 2 else ""
 
     if parts[0] not in ("Playing", "Paused"):
-        return "Idle", ""
+        return "", ""
 
     # Use URL to explicitly set/refine the provider if available
     url_provider = _detect_provider_from_url(url)
@@ -438,7 +412,7 @@ def _apply_provider_inheritance(parsed_lines: list[dict]):
 
 def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     """Parse multiple player lines and extract the best metadata."""
-    best_activity, best_title, best_quality = "Idle", "", 0
+    best_activity, best_title, best_quality = "", "", 0
 
     # First pass: Parse each line and detect its own provider
     parsed_lines = []
@@ -457,6 +431,9 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     # Third pass: Evaluate quality
     for item in parsed_lines:
         activity, title = parse_mpris_data(item["raw"], item["provider"], item["url"])
+        if not activity:
+            continue
+
         quality = 0
         if activity.startswith(("Listening to:", "Watching:")):
             quality = 20 if " - " in activity else 10
@@ -478,10 +455,7 @@ async def monitor_mpris(updaters: list[MatrixStatusUpdater], poll_interval: int)
     while True:
         try:
             # We poll playerctl instead of --follow to avoid holding a persistent
-            # D-Bus connection. This allows apps like Firefox to close without
-            # warning about an active media control lock.
-            # Using --all-players ensures we don't accidentally poll a paused tab
-            # when another tab is actively playing.
+            # D-Bus connection.
             process = await asyncio.create_subprocess_exec(
                 "playerctl",
                 "--all-players",
@@ -510,8 +484,6 @@ async def monitor_mpris(updaters: list[MatrixStatusUpdater], poll_interval: int)
 
 def install_service():
     """Install the systemd user service."""
-    import subprocess  # pylint: disable=import-outside-toplevel
-
     executable = shutil.which("matrix-premid")
     if not executable:
         # Fallback if not in PATH
@@ -618,9 +590,9 @@ async def main(args=None):
         return
 
     if args.debug:
-        logging.getLogger("nio").setLevel(logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG)
     else:
-        logging.getLogger("nio").setLevel(logging.CRITICAL)
+        logging.basicConfig(level=logging.CRITICAL)
 
     if not args.unset and not shutil.which("playerctl"):
         print("ERROR: playerctl command not found. Please install it.", file=sys.stderr)
@@ -724,64 +696,31 @@ async def main(args=None):
         pass
 
     async def keep_alive(updater: MatrixStatusUpdater):
-        """Keep status online."""
+        """Keep status online via periodic presence updates."""
+        backoff = 5
+        while not shutdown_event.is_set():
+            try:
+                # Instead of syncing, we just push a presence update periodically
+                # to stay 'online' in the eyes of the server.
+                await updater.send_update(updater.last_activity)
 
-        async def sync_loop():  # pragma: no cover
-            backoff = 5
-            while True:
-                try:
-                    resp = await updater.client.sync(timeout=30, set_presence="online")
-                    if isinstance(resp, ErrorResponse):
-                        msg = getattr(resp, "message", resp)
-                        print(
-                            f"ERROR: sync failed for {updater.client.user_id}: {msg}",
-                            file=sys.stderr,
-                        )
-                        if updater.verbose:
-                            print(
-                                f"DEBUG [{updater.client.user_id}]: "
-                                f"sync error resp: {vars(resp)}",
-                                file=sys.stderr,
-                            )
-                        if getattr(resp, "status_code", 0) in (401, 403):
-                            print(
-                                f"ERROR: Unauthorized for {updater.client.user_id}. "
-                                "Exiting.",
-                                file=sys.stderr,
-                            )
-                            shutdown_event.set()
-                            break
-
-                        await asyncio.sleep(backoff)
-                        backoff = min(backoff * 2, 300)
-                        continue
-
-                    # Reset backoff on success
-                    backoff = 5
-                    if updater.current_presence != "online":
-                        updater.current_presence = "online"
-
-                    # Periodic re-send of status to ensure it stays visible on the
-                    # server and isn't cleared by other clients or server-side
-                    # timeouts.
-                    if updater.last_activity and not updater.last_activity.startswith(
-                        "Idle"
-                    ):
-                        await updater.update(
-                            updater.last_activity, title=updater.last_title, force=True
-                        )
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:  # pylint: disable=broad-exception-caught
-                    print(
-                        f"ERROR: sync loop exception ({updater.client.user_id}): "
-                        f"{type(e).__name__} - {e}",
-                        file=sys.stderr,
-                    )
-                    await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 300)
-
-        await sync_loop()
+                # Wait for a while before the next refresh
+                # Typically Matrix presence expires in 5-15 minutes if not refreshed
+                # but we'll be more aggressive to ensure status visibility.
+                for _ in range(60):  # 60 seconds
+                    if shutdown_event.is_set():
+                        break
+                    await asyncio.sleep(1)
+                backoff = 5
+            except asyncio.CancelledError:
+                break
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                print(
+                    f"ERROR: keep-alive exception ({updater.username}): {e}",
+                    file=sys.stderr,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 300)
 
     print("Listening for MPRIS events...", flush=True)
 

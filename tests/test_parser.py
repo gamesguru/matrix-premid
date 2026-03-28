@@ -6,9 +6,9 @@ from matrix_premid.__main__ import SEP_STR, _get_best_mpris_activity, parse_mpri
 
 
 def test_get_best_mpris_activity_idle():
-    assert _get_best_mpris_activity([]) == ("Idle", "")
-    assert _get_best_mpris_activity(["", "   "]) == ("Idle", "")
-    assert _get_best_mpris_activity(["Invalid Line"]) == ("Idle", "")
+    assert _get_best_mpris_activity([]) == ("", "")
+    assert _get_best_mpris_activity(["", "   "]) == ("", "")
+    assert _get_best_mpris_activity(["Invalid Line"]) == ("", "")
 
 
 def test_parse_mpris_data_playing_song_with_artist():
