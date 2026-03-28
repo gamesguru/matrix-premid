@@ -201,13 +201,11 @@ class MatrixStatusUpdater:
             if is_exit:
                 payload_p = {
                     "presence": "offline",
-                    "currently_active": False,
                     "status_msg": "",
                 }
             else:
                 payload_p = {
                     "presence": self.current_presence,
-                    "currently_active": True,
                 }
                 if activity and activity != "Idle":
                     payload_p["status_msg"] = activity
@@ -736,9 +734,9 @@ async def main(args=None):
                 await updater.send_update(updater.last_activity)
 
                 # Wait for a while before the next refresh
-                # Typically Matrix presence expires in 5-15 minutes if not refreshed
+                # typically Matrix presence expires in 5-15 minutes if not refreshed
                 # but we'll be more aggressive to ensure status visibility.
-                for _ in range(60):  # 60 seconds
+                for _ in range(20):  # 20 seconds
                     if shutdown_event.is_set():
                         break
                     await asyncio.sleep(1)

@@ -20,12 +20,13 @@ from matrix_premid.__main__ import (
 
 @pytest.fixture(autouse=True)
 def patch_sleep():
-    """Bypass asyncio.sleep delays globally for fast test execution."""
+    """Bypass asyncio.sleep delays in the main module."""
 
     async def dummy_sleep(*_args, **_kwargs):
         pass
 
-    with patch("asyncio.sleep", side_effect=dummy_sleep):
+    # We patch it in the target module where it's used
+    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=dummy_sleep):
         yield
 
 
@@ -213,26 +214,27 @@ async def test_main_execution_mocked_gather(
         "accounts": [{"homeserver": "mock", "username": "@user", "device_id": "dev"}]
     }
 
-    def mock_create_task_side_effect(coro):
-        coro.close()
-        return MagicMock(spec=asyncio.Task)
-
     loop = asyncio.get_running_loop()
-    f = loop.create_future()
-    f.set_result(None)
+
+    def mock_create_task_side_effect(coro):
+        # We must return a real task or future bound to the loop
+        coro.close()
+        f = loop.create_future()
+        f.set_result(None)
+        return f
 
     with (
-        patch("matrix_premid.__main__.asyncio.Event.wait", return_value=f),
+        patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)),
         patch(
             "matrix_premid.__main__.asyncio.create_task",
             side_effect=mock_create_task_side_effect,
         ),
-        patch("matrix_premid.__main__.asyncio.gather", return_value=f),
     ):
+        # We DO NOT mock asyncio.gather here, to ensure coroutines are awaited
         with patch(
             "matrix_premid.__main__.MatrixStatusUpdater.update",
             AsyncMock(side_effect=asyncio.CancelledError()),
-        ):
+        ) as mock_update:
             with patch(
                 "matrix_premid.__main__.asyncio.create_subprocess_exec"
             ) as mock_exec:
@@ -242,6 +244,9 @@ async def test_main_execution_mocked_gather(
 
                 with patch("sys.argv", ["matrix_premid.py"]):
                     await main()
+        # Verify that update was at least called or attempted during shutdown
+        assert mock_update.called
+
     mock_exit.assert_not_called()
 
 
@@ -270,33 +275,35 @@ async def test_main_debug_flag():
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
 
         mock_updater = MagicMock(spec=MatrixStatusUpdater)
         mock_updater.send_update = AsyncMock()
+        mock_updater.update = AsyncMock(side_effect=asyncio.CancelledError())
         mock_updater.close = AsyncMock()
         mock_updater_class.return_value = mock_updater
         mock_lock.return_value = MagicMock()
 
+        loop = asyncio.get_running_loop()
+
         def mock_create_task_side_effect(coro):
             coro.close()
-            return MagicMock(spec=asyncio.Task)
+            f = loop.create_future()
+            f.set_result(None)
+            return f
 
-        loop = asyncio.get_running_loop()
-        f = loop.create_future()
-        f.set_result(None)
-
-        # Mocking wait/create_task/gather to exit immediately
+        # Mocking wait/create_task to exit immediately
         with (
-            patch("matrix_premid.__main__.asyncio.Event.wait", return_value=f),
+            patch(
+                "matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)
+            ),
             patch(
                 "matrix_premid.__main__.asyncio.create_task",
                 side_effect=mock_create_task_side_effect,
             ),
-            patch("matrix_premid.__main__.asyncio.gather", return_value=f),
         ):
             await main()
 
@@ -313,12 +320,13 @@ async def test_main_set_command():
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
         mock_updater = MagicMock(spec=MatrixStatusUpdater)
         mock_updater.send_update = AsyncMock()
+        mock_updater.update = AsyncMock(side_effect=asyncio.CancelledError())
         mock_updater.close = AsyncMock()
         mock_updater_class.return_value = mock_updater
 
@@ -338,12 +346,12 @@ async def test_main_set_command_no_args(capsys):
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
         patch("sys.exit", side_effect=SystemExit) as mock_exit,
     ):
-        mock_updater = MagicMock()
+        mock_updater = MagicMock(spec=MatrixStatusUpdater)
         mock_updater.close = AsyncMock()
         mock_updater_class.return_value = mock_updater
 
@@ -365,7 +373,7 @@ async def test_main_unset_flag():
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
@@ -386,8 +394,8 @@ async def test_updater_update_lower_quality_ignored(matrix_updater_obj):
     matrix_updater_obj.last_title = "Song"
     matrix_updater_obj.last_quality = 20  # High quality
     await matrix_updater_obj.update(
-        "Listening to: Song", title="Song"
-    )  # Low quality (10)
+        "Listening to: Song", title="Song"  # Low quality (10)
+    )
     assert matrix_updater_obj._update_task is None
 
 
