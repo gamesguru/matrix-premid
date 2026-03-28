@@ -728,16 +728,17 @@ async def main(args=None):
         """Keep status online."""
 
         async def sync_loop():  # pragma: no cover
+            backoff = 5
             while True:
                 try:
                     resp = await updater.client.sync(timeout=30, set_presence="online")
-                    if isinstance(resp, ErrorResponse):  # pragma: no cover
+                    if isinstance(resp, ErrorResponse):
                         msg = getattr(resp, "message", resp)
                         print(
                             f"ERROR: sync failed for {updater.client.user_id}: {msg}",
                             file=sys.stderr,
                         )
-                        if updater.verbose:  # pragma: no cover
+                        if updater.verbose:
                             print(
                                 f"DEBUG [{updater.client.user_id}]: "
                                 f"sync error resp: {vars(resp)}",
@@ -751,6 +752,13 @@ async def main(args=None):
                             )
                             shutdown_event.set()
                             break
+
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * 2, 300)
+                        continue
+
+                    # Reset backoff on success
+                    backoff = 5
                     if updater.current_presence != "online":
                         updater.current_presence = "online"
                 except asyncio.CancelledError:
@@ -761,7 +769,8 @@ async def main(args=None):
                         f"{type(e).__name__} - {e}",
                         file=sys.stderr,
                     )
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 300)
 
         await sync_loop()
 
