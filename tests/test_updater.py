@@ -20,13 +20,14 @@ from matrix_premid.__main__ import (
 
 @pytest.fixture(autouse=True)
 def patch_sleep():
-    """Bypass asyncio.sleep delays in the main module."""
+    """Bypass asyncio.sleep delays globally."""
 
-    async def dummy_sleep(*_args, **_kwargs):
+    async def dummy_sleep(delay, *_args, **_kwargs):
+        print(f"DEBUG: Mock sleep for {delay}s")
         pass
 
-    # We patch it in the target module where it's used
-    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=dummy_sleep):
+    # We patch it globally in asyncio to be sure
+    with patch("asyncio.sleep", side_effect=dummy_sleep):
         yield
 
 
@@ -71,7 +72,8 @@ async def test_updater_update(matrix_updater_obj):
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
     ):
         await matrix_updater_obj.update("Listening to: Song | YT Music")
-        await matrix_updater_obj._update_task
+        if matrix_updater_obj._update_task:
+            await matrix_updater_obj._update_task
 
         # Verify Presence Update was called via aiohttp
         mock_session.put.assert_any_call(
@@ -96,7 +98,8 @@ async def test_updater_update_paused(matrix_updater_obj):
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
     ):
         await matrix_updater_obj.update("Paused: Song - Artist | YT Music")
-        await matrix_updater_obj._update_task
+        if matrix_updater_obj._update_task:
+            await matrix_updater_obj._update_task
         assert mock_session.put.call_count >= 1
 
 
@@ -121,7 +124,8 @@ async def test_updater_update_other(matrix_updater_obj):
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
     ):
         await matrix_updater_obj.update("Watching: Movie", title="Movie")
-        await matrix_updater_obj._update_task
+        if matrix_updater_obj._update_task:
+            await matrix_updater_obj._update_task
         assert mock_session.put.call_count >= 1
 
 
@@ -135,7 +139,8 @@ async def test_updater_update_exception(matrix_updater_obj):
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
     ):
         await matrix_updater_obj.update("Listening to: Song")
-        await matrix_updater_obj._update_task
+        if matrix_updater_obj._update_task:
+            await matrix_updater_obj._update_task
         # Should not crash despite the network error
         assert mock_session.put.call_count >= 1
 
@@ -478,7 +483,7 @@ async def test_monitor_mpris_error_handling(mock_exec, capsys):
     async def dummy_sleep_cancel(*_args, **_kwargs):
         raise asyncio.CancelledError()
 
-    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=dummy_sleep_cancel):
+    with patch("asyncio.sleep", side_effect=dummy_sleep_cancel):
         try:
             await monitor_mpris([], 1)
         except (asyncio.CancelledError, Exception):
