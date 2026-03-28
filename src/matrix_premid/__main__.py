@@ -81,6 +81,7 @@ class MatrixStatusUpdater:
         idle_timeout=15,
         poll_interval=5,
         verbose=False,
+        session=None,
     ):
         # pylint: disable=too-many-arguments,too-many-positional-arguments
         self.homeserver = homeserver.rstrip("/")
@@ -98,7 +99,7 @@ class MatrixStatusUpdater:
         self.idle_strikes = 0
         self.lock = asyncio.Lock()
         self._update_task = None
-        self._session = None
+        self._session = session
 
     async def _get_session(self):
         """Create or return existing aiohttp ClientSession."""

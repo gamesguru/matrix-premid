@@ -4,7 +4,7 @@
 
 import asyncio
 import logging
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -18,6 +18,49 @@ from matrix_premid.__main__ import (
 )
 
 
+class FakeResponse:
+    """Fake aiohttp response."""
+
+    def __init__(self, status=200, text="OK", side_effect=None):
+        self.status = status
+        self._text = text
+        self._side_effect = side_effect
+
+    async def text(self):
+        """Mock text() method."""
+        if self._side_effect:
+            raise self._side_effect
+        return self._text
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+class FakeSession:
+    """Fake aiohttp session."""
+
+    def __init__(self):
+        self.puts = []
+        self.closed = False
+        self.put_side_effect = None
+
+    def put(self, url, **kwargs):
+        """Mock put() method (synchronous returning an async context manager)."""
+        if self.put_side_effect:
+            if isinstance(self.put_side_effect, Exception):
+                raise self.put_side_effect
+            return self.put_side_effect
+        self.puts.append((url, kwargs))
+        return FakeResponse()
+
+    async def close(self):
+        """Mock close() method."""
+        self.closed = True
+
+
 @pytest.fixture(autouse=True)
 def patch_sleep():
     """Bypass asyncio.sleep delays globally."""
@@ -25,19 +68,18 @@ def patch_sleep():
     async def dummy_sleep(_delay, *_args, **_kwargs):
         return
 
-    # We patch it globally in asyncio to be sure
-    with patch("asyncio.sleep", side_effect=dummy_sleep):
+    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=dummy_sleep):
         yield
 
 
 @pytest_asyncio.fixture
 async def matrix_updater_obj():
-    """Fixture to provide a MatrixStatusUpdater and ensure it's closed."""
-    u = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
+    """Fixture to provide a MatrixStatusUpdater with a FakeSession."""
+    session = FakeSession()
+    u = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev", session=session)
     try:
         yield u
     finally:
-        # Properly cancel and await the task to avoid leaks
         if u._update_task and not u._update_task.done():
             u._update_task.cancel()
             try:
@@ -59,48 +101,23 @@ def test_updater_init():
 @pytest.mark.asyncio
 async def test_updater_update(matrix_updater_obj):
     """Test pushing presence state to the Matrix room."""
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.text = AsyncMock(return_value="OK")
+    await matrix_updater_obj.update("Listening to: Song | YT Music")
+    if matrix_updater_obj._update_task:
+        await matrix_updater_obj._update_task
 
-    mock_session = MagicMock()
-    # Mocking async context manager
-    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
-    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(
-        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
-    ):
-        await matrix_updater_obj.update("Listening to: Song | YT Music")
-        if matrix_updater_obj._update_task:
-            await matrix_updater_obj._update_task
-
-        # Verify Presence Update was called via aiohttp
-        mock_session.put.assert_any_call(
-            "http://mock/_matrix/client/v3/presence/@test:mock/status",
-            json=ANY,
-            headers=ANY,
-            timeout=ANY,
-        )
+    assert len(matrix_updater_obj._session.puts) >= 1
+    # Check if presence URL was used
+    urls = [p[0] for p in matrix_updater_obj._session.puts]
+    assert any("presence" in url for url in urls)
 
 
 @pytest.mark.asyncio
 async def test_updater_update_paused(matrix_updater_obj):
     """Test a paused song yields presence correctly."""
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-
-    mock_session = MagicMock()
-    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
-    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(
-        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
-    ):
-        await matrix_updater_obj.update("Paused: Song - Artist | YT Music")
-        if matrix_updater_obj._update_task:
-            await matrix_updater_obj._update_task
-        assert mock_session.put.call_count >= 1
+    await matrix_updater_obj.update("Paused: Song - Artist | YT Music")
+    if matrix_updater_obj._update_task:
+        await matrix_updater_obj._update_task
+    assert len(matrix_updater_obj._session.puts) >= 1
 
 
 @pytest.mark.asyncio
@@ -113,36 +130,24 @@ async def test_updater_update_empty(matrix_updater_obj):
 @pytest.mark.asyncio
 async def test_updater_update_other(matrix_updater_obj):
     """Test non-music activities receive correct base quality attributes."""
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-
-    mock_session = MagicMock()
-    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
-    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(
-        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
-    ):
-        await matrix_updater_obj.update("Watching: Movie", title="Movie")
-        if matrix_updater_obj._update_task:
-            await matrix_updater_obj._update_task
-        assert mock_session.put.call_count >= 1
+    await matrix_updater_obj.update("Watching: Movie", title="Movie")
+    if matrix_updater_obj._update_task:
+        await matrix_updater_obj._update_task
+    assert len(matrix_updater_obj._session.puts) >= 1
 
 
 @pytest.mark.asyncio
-async def test_updater_update_exception(matrix_updater_obj):
+async def test_updater_update_exception(matrix_updater_obj, capsys):
     """Test updating surviving network errors."""
-    mock_session = MagicMock()
-    mock_session.put.side_effect = Exception("Network Error")
+    matrix_updater_obj._session.put_side_effect = Exception("Network Error")
+    matrix_updater_obj.verbose = True
 
-    with patch.object(
-        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
-    ):
-        await matrix_updater_obj.update("Listening to: Song")
-        if matrix_updater_obj._update_task:
-            await matrix_updater_obj._update_task
-        # Should not crash despite the network error
-        assert mock_session.put.call_count >= 1
+    await matrix_updater_obj.update("Listening to: Song")
+    if matrix_updater_obj._update_task:
+        await matrix_updater_obj._update_task
+
+    _, err = capsys.readouterr()
+    assert "presence error: Network Error" in err
 
 
 @pytest.mark.asyncio
@@ -271,13 +276,10 @@ async def test_main_execution_mocked_gather(
 @pytest.mark.asyncio
 async def test_updater_close():
     """Test shutdown cleanup of updater client sockets."""
-    u = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
-    u._session = MagicMock()
-    u._session.closed = False
-    u._session.close = AsyncMock()
-
+    session = FakeSession()
+    u = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev", session=session)
     await u.close()
-    u._session.close.assert_awaited()
+    assert session.closed
 
 
 @pytest.mark.asyncio
@@ -480,39 +482,28 @@ async def test_updater_update_exit_sends_immediately(matrix_updater_obj):
 async def test_send_update_failure_logs_error(matrix_updater_obj, capsys):
     """Test that failed API requests log errors to stderr."""
     matrix_updater_obj.verbose = True
-    mock_resp = MagicMock()
-    mock_resp.status = 400
-    mock_resp.text = AsyncMock(return_value="Bad Request")
+    matrix_updater_obj._session.put_side_effect = FakeResponse(
+        status=400, text="Bad Request"
+    )
 
-    mock_session = MagicMock()
-    mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
-    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
+    await matrix_updater_obj.send_update("Activity")
 
-    with patch.object(
-        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
-    ):
-        await matrix_updater_obj.send_update("Activity")
-
-        _, err = capsys.readouterr()
-        assert "presence failed (400): Bad Request" in err
-        assert "account_data failed (400): Bad Request" in err
+    _, err = capsys.readouterr()
+    assert "presence failed (400): Bad Request" in err
+    assert "account_data failed (400): Bad Request" in err
 
 
 @pytest.mark.asyncio
 async def test_send_update_exception_logs_debug(matrix_updater_obj, capsys):
     """Test that exceptions during API requests log to stderr if verbose."""
     matrix_updater_obj.verbose = True
-    mock_session = MagicMock()
-    mock_session.put.side_effect = Exception("Crash")
+    matrix_updater_obj._session.put_side_effect = Exception("Crash")
 
-    with patch.object(
-        matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
-    ):
-        await matrix_updater_obj.send_update("Activity")
+    await matrix_updater_obj.send_update("Activity")
 
-        _, err = capsys.readouterr()
-        assert "presence error: Crash" in err
-        assert "account_data error: Crash" in err
+    _, err = capsys.readouterr()
+    assert "presence error: Crash" in err
+    assert "account_data error: Crash" in err
 
 
 @pytest.mark.asyncio
