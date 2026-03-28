@@ -226,7 +226,9 @@ async def test_main_execution_mocked_gather(
         return
 
     with (
-        patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)),
+        patch(
+            "matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)
+        ),
         patch(
             "matrix_premid.__main__.asyncio.create_task",
             side_effect=mock_create_task_side_effect,
@@ -303,7 +305,9 @@ async def test_main_debug_flag(
         return f
 
     with (
-        patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)),
+        patch(
+            "matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)
+        ),
         patch(
             "matrix_premid.__main__.asyncio.create_task",
             side_effect=mock_create_task_side_effect,
