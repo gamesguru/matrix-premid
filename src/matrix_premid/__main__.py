@@ -139,7 +139,8 @@ class MatrixStatusUpdater:
                     self.idle_strikes = 0
                 return
 
-            if activity == "Idle" and not is_exit:
+            is_idle = activity == "Idle" or activity.startswith("Idle")
+            if is_idle and not is_exit:
                 self.idle_strikes += 1
                 max_strikes = max(1, self.idle_timeout // self.poll_interval)
                 if self.idle_strikes < max_strikes and not force:
@@ -493,13 +494,12 @@ async def monitor_mpris(updaters: list[MatrixStatusUpdater], poll_interval: int)
             )
 
             stdout, _ = await process.communicate()
-            if stdout:
-                lines = stdout.decode("utf-8").strip().splitlines()
-                if updaters and updaters[0].verbose:  # pragma: no cover
-                    print(f"DEBUG: raw playerctl lines: {lines}", flush=True)
-                activity, title = _get_best_mpris_activity(lines)
-                for updater in updaters:
-                    await updater.update(activity, title=title)
+            lines = stdout.decode("utf-8").strip().splitlines() if stdout else []
+            if updaters and updaters[0].verbose:  # pragma: no cover
+                print(f"DEBUG: raw playerctl lines: {lines}", flush=True)
+            activity, title = _get_best_mpris_activity(lines)
+            for updater in updaters:
+                await updater.update(activity, title=title)
 
         except asyncio.CancelledError:
             break
