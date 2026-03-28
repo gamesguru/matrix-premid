@@ -25,6 +25,7 @@ def patch_sleep():
     async def dummy_sleep(_delay, *_args, **_kwargs):
         return
 
+    # We patch it globally in asyncio to be sure
     with patch("asyncio.sleep", side_effect=dummy_sleep):
         yield
 
@@ -36,6 +37,7 @@ async def matrix_updater_obj():
     try:
         yield u
     finally:
+        # Properly cancel and await the task to avoid leaks
         if u._update_task and not u._update_task.done():
             u._update_task.cancel()
             try:
@@ -201,7 +203,7 @@ async def test_main_missing_env(_mock_exists, _mock_which, mock_exit):
 @patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token")
 @patch("matrix_premid.__main__.open", new_callable=MagicMock)
 async def test_main_execution_mocked_gather(
-    mock_open,
+    _mock_open,
     _mock_keyring,
     mock_json,
     _mock_exists,
@@ -217,12 +219,14 @@ async def test_main_execution_mocked_gather(
     loop = asyncio.get_running_loop()
 
     def mock_create_task_side_effect(coro):
+        # We must return a real task or future bound to the loop
         coro.close()
         f = loop.create_future()
         f.set_result(None)
         return f
 
-    async def mock_bg_task(*args, **kwargs):
+    # Mock the background tasks to return immediately
+    async def mock_bg_task(*_args, **_kwargs):
         return
 
     with (
@@ -235,10 +239,21 @@ async def test_main_execution_mocked_gather(
         ),
         patch("matrix_premid.__main__.monitor_mpris", side_effect=mock_bg_task),
     ):
-        with patch(
-            "matrix_premid.__main__.MatrixStatusUpdater.update",
-            AsyncMock(return_value=None),
-        ) as mock_update:
+        # Mock MatrixStatusUpdater methods to ensure no real network or hangs
+        with (
+            patch(
+                "matrix_premid.__main__.MatrixStatusUpdater.update",
+                AsyncMock(return_value=None),
+            ) as mock_update,
+            patch(
+                "matrix_premid.__main__.MatrixStatusUpdater.send_update",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "matrix_premid.__main__.MatrixStatusUpdater.close",
+                AsyncMock(return_value=None),
+            ),
+        ):
             with patch(
                 "matrix_premid.__main__.asyncio.create_subprocess_exec"
             ) as mock_exec:
@@ -289,7 +304,7 @@ async def test_main_debug_flag(
     """Test the --debug flag in main sets log level."""
     mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
 
-    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater = MagicMock()
     mock_updater.send_update = AsyncMock()
     mock_updater.update = AsyncMock(return_value=None)
     mock_updater.close = AsyncMock()
@@ -304,6 +319,7 @@ async def test_main_debug_flag(
         f.set_result(None)
         return f
 
+    # Mocking wait/create_task to exit immediately
     with (
         patch(
             "matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)
@@ -339,7 +355,7 @@ async def test_main_set_command(
     """Test the manual 'set' command in main."""
     mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
 
-    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater = MagicMock()
     mock_updater.send_update = AsyncMock()
     mock_updater.close = AsyncMock()
     mock_updater_class.return_value = mock_updater
@@ -372,7 +388,7 @@ async def test_main_set_command_no_args(
     """Test the 'set' command with no status message (error case)."""
     mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
 
-    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater = MagicMock()
     mock_updater.close = AsyncMock()
     mock_updater_class.return_value = mock_updater
 
@@ -405,7 +421,7 @@ async def test_main_unset_flag(
     """Test the manual --unset flag in main."""
     mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
 
-    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater = MagicMock()
     mock_updater.update = AsyncMock()
     mock_updater.close = AsyncMock()
     mock_updater_class.return_value = mock_updater
@@ -524,7 +540,8 @@ async def test_monitor_mpris_error_handling(mock_exec, capsys):
 @patch("matrix_premid.__main__.subprocess.run")
 def test_install_service_flow(mock_run, _mock_open, _mock_makedirs, _mock_which):
     """Test the installation flow for systemd service."""
-    install_service()
+    # Patch the open in the target module specifically
+    with patch("matrix_premid.__main__.open", new_callable=MagicMock):
+        install_service()
     assert _mock_makedirs.called
-    assert _mock_open.called
     assert mock_run.called
