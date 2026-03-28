@@ -492,7 +492,6 @@ async def monitor_mpris(updaters: list[MatrixStatusUpdater], poll_interval: int)
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-
             stdout, _ = await process.communicate()
             lines = stdout.decode("utf-8").strip().splitlines() if stdout else []
             if updaters and updaters[0].verbose:  # pragma: no cover
@@ -761,6 +760,16 @@ async def main(args=None):
                     backoff = 5
                     if updater.current_presence != "online":
                         updater.current_presence = "online"
+
+                    # Periodic re-send of status to ensure it stays visible on the
+                    # server and isn't cleared by other clients or server-side
+                    # timeouts.
+                    if updater.last_activity and not updater.last_activity.startswith(
+                        "Idle"
+                    ):
+                        await updater.update(
+                            updater.last_activity, title=updater.last_title, force=True
+                        )
                 except asyncio.CancelledError:
                     break
                 except Exception as e:  # pylint: disable=broad-exception-caught
