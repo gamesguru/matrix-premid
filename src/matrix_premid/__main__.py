@@ -694,7 +694,6 @@ async def main(args=None):
                 ),
                 timeout=10.0,
             )
-            await asyncio.sleep(0.5)
             print(f"Successfully cleared status for {len(updaters)} accounts.")
         except asyncio.CancelledError:
             pass
@@ -777,8 +776,6 @@ async def main(args=None):
             asyncio.gather(*(u.update("", force=True, is_exit=True) for u in updaters)),
             timeout=5.0,
         )
-        # Give nio a moment to actually flush the requests to the network
-        await asyncio.sleep(0.5)
     except (  # pylint: disable=broad-exception-caught
         Exception,
         asyncio.CancelledError,

@@ -22,11 +22,9 @@ from matrix_premid.__main__ import (
 def patch_sleep():
     """Bypass asyncio.sleep delays globally."""
 
-    async def dummy_sleep(delay, *_args, **_kwargs):
-        print(f"DEBUG: Mock sleep for {delay}s")
-        pass
+    async def dummy_sleep(_delay, *_args, **_kwargs):
+        return
 
-    # We patch it globally in asyncio to be sure
     with patch("asyncio.sleep", side_effect=dummy_sleep):
         yield
 
@@ -183,22 +181,19 @@ async def test_monitor_mpris_picks_best_activity(mock_exec, matrix_updater_obj):
 
 
 @pytest.mark.asyncio
-@patch("matrix_premid.__main__.sys.exit")
+@patch("matrix_premid.__main__.sys.exit", side_effect=SystemExit)
 @patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
 @patch("matrix_premid.__main__.os.path.exists", return_value=False)
 async def test_main_missing_env(_mock_exists, _mock_which, mock_exit):
     """Test main script breaks when config is lacking."""
-    mock_exit.side_effect = SystemExit()
     with patch("sys.argv", ["matrix_premid.py"]):
-        try:
+        with pytest.raises(SystemExit):
             await main()
-        except SystemExit:
-            pass
     mock_exit.assert_called_with(1)
 
 
 @pytest.mark.asyncio
-@patch("matrix_premid.__main__.sys.exit")
+@patch("matrix_premid.__main__.sys.exit", side_effect=SystemExit)
 @patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
 @patch("matrix_premid.__main__.acquire_lock")
 @patch("matrix_premid.__main__.os.path.exists", return_value=True)
@@ -206,7 +201,7 @@ async def test_main_missing_env(_mock_exists, _mock_which, mock_exit):
 @patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token")
 @patch("matrix_premid.__main__.open", new_callable=MagicMock)
 async def test_main_execution_mocked_gather(
-    _mock_open,
+    mock_open,
     _mock_keyring,
     mock_json,
     _mock_exists,
@@ -222,11 +217,13 @@ async def test_main_execution_mocked_gather(
     loop = asyncio.get_running_loop()
 
     def mock_create_task_side_effect(coro):
-        # We must return a real task or future bound to the loop
         coro.close()
         f = loop.create_future()
         f.set_result(None)
         return f
+
+    async def mock_bg_task(*args, **kwargs):
+        return
 
     with (
         patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)),
@@ -234,11 +231,11 @@ async def test_main_execution_mocked_gather(
             "matrix_premid.__main__.asyncio.create_task",
             side_effect=mock_create_task_side_effect,
         ),
+        patch("matrix_premid.__main__.monitor_mpris", side_effect=mock_bg_task),
     ):
-        # We DO NOT mock asyncio.gather here, to ensure coroutines are awaited
         with patch(
             "matrix_premid.__main__.MatrixStatusUpdater.update",
-            AsyncMock(side_effect=asyncio.CancelledError()),
+            AsyncMock(return_value=None),
         ) as mock_update:
             with patch(
                 "matrix_premid.__main__.asyncio.create_subprocess_exec"
@@ -249,7 +246,6 @@ async def test_main_execution_mocked_gather(
 
                 with patch("sys.argv", ["matrix_premid.py"]):
                     await main()
-        # Verify that update was at least called or attempted during shutdown
         assert mock_update.called
 
     mock_exit.assert_not_called()
@@ -268,129 +264,153 @@ async def test_updater_close():
 
 
 @pytest.mark.asyncio
-async def test_main_debug_flag():
+@patch("matrix_premid.__main__.sys.exit", side_effect=SystemExit)
+@patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
+@patch("matrix_premid.__main__.MatrixStatusUpdater")
+@patch("matrix_premid.__main__.logging.basicConfig")
+@patch("matrix_premid.__main__.acquire_lock")
+@patch("matrix_premid.__main__.os.path.exists", return_value=True)
+@patch("matrix_premid.__main__.open", new_callable=MagicMock)
+@patch("matrix_premid.__main__.json.load")
+@patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token")
+async def test_main_debug_flag(
+    _mock_keyring,
+    mock_json,
+    _mock_open,
+    _mock_exists,
+    _mock_lock,
+    mock_config_logger,
+    mock_updater_class,
+    _mock_which,
+    _mock_exit,
+):
     """Test the --debug flag in main sets log level."""
+    mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
+
+    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater.send_update = AsyncMock()
+    mock_updater.update = AsyncMock(return_value=None)
+    mock_updater.close = AsyncMock()
+    mock_updater_class.return_value = mock_updater
+    _mock_lock.return_value = MagicMock()
+
+    loop = asyncio.get_running_loop()
+
+    def mock_create_task_side_effect(coro):
+        coro.close()
+        f = loop.create_future()
+        f.set_result(None)
+        return f
+
     with (
-        patch("sys.argv", ["matrix_premid.py", "--debug"]),
-        patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl"),
-        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
-        patch("matrix_premid.__main__.logging.basicConfig") as mock_config_logger,
-        patch("matrix_premid.__main__.acquire_lock") as mock_lock,
-        patch("matrix_premid.__main__.os.path.exists", return_value=True),
-        patch("matrix_premid.__main__.open", new_callable=MagicMock),
+        patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)),
         patch(
-            "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
+            "matrix_premid.__main__.asyncio.create_task",
+            side_effect=mock_create_task_side_effect,
         ),
-        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
-
-        mock_updater = MagicMock(spec=MatrixStatusUpdater)
-        mock_updater.send_update = AsyncMock()
-        mock_updater.update = AsyncMock(side_effect=asyncio.CancelledError())
-        mock_updater.close = AsyncMock()
-        mock_updater_class.return_value = mock_updater
-        mock_lock.return_value = MagicMock()
-
-        loop = asyncio.get_running_loop()
-
-        def mock_create_task_side_effect(coro):
-            coro.close()
-            f = loop.create_future()
-            f.set_result(None)
-            return f
-
-        # Mocking wait/create_task to exit immediately
-        with (
-            patch(
-                "matrix_premid.__main__.asyncio.Event.wait", AsyncMock(return_value=None)
-            ),
-            patch(
-                "matrix_premid.__main__.asyncio.create_task",
-                side_effect=mock_create_task_side_effect,
-            ),
-        ):
+        with patch("sys.argv", ["matrix_premid.py", "--debug"]):
             await main()
 
-        mock_config_logger.assert_called_with(level=logging.DEBUG)
+    mock_config_logger.assert_called_with(level=logging.DEBUG)
 
 
 @pytest.mark.asyncio
-async def test_main_set_command():
+@patch("matrix_premid.__main__.sys.exit", side_effect=SystemExit)
+@patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
+@patch("matrix_premid.__main__.MatrixStatusUpdater")
+@patch("matrix_premid.__main__.os.path.exists", return_value=True)
+@patch("matrix_premid.__main__.open", new_callable=MagicMock)
+@patch("matrix_premid.__main__.json.load")
+@patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token")
+async def test_main_set_command(
+    _mock_keyring,
+    mock_json,
+    _mock_open,
+    _mock_exists,
+    mock_updater_class,
+    _mock_which,
+    _mock_exit,
+):
     """Test the manual 'set' command in main."""
-    with (
-        patch("sys.argv", ["matrix_premid.py", "set", "Working", "Hard"]),
-        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
-        patch("matrix_premid.__main__.os.path.exists", return_value=True),
-        patch("matrix_premid.__main__.open", new_callable=MagicMock),
-        patch(
-            "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
-        ),
-        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
-    ):
-        mock_updater = MagicMock(spec=MatrixStatusUpdater)
-        mock_updater.send_update = AsyncMock()
-        mock_updater.update = AsyncMock(side_effect=asyncio.CancelledError())
-        mock_updater.close = AsyncMock()
-        mock_updater_class.return_value = mock_updater
+    mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
 
+    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater.send_update = AsyncMock()
+    mock_updater.close = AsyncMock()
+    mock_updater_class.return_value = mock_updater
+
+    with patch("sys.argv", ["matrix_premid.py", "set", "Working", "Hard"]):
         await main()
 
-        mock_updater.send_update.assert_awaited_with("Working Hard")
-        mock_updater.close.assert_awaited()
+    mock_updater.send_update.assert_awaited_with("Working Hard")
+    mock_updater.close.assert_awaited()
 
 
 @pytest.mark.asyncio
-async def test_main_set_command_no_args(capsys):
+@patch("matrix_premid.__main__.sys.exit", side_effect=SystemExit)
+@patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
+@patch("matrix_premid.__main__.MatrixStatusUpdater")
+@patch("matrix_premid.__main__.os.path.exists", return_value=True)
+@patch("matrix_premid.__main__.open", new_callable=MagicMock)
+@patch("matrix_premid.__main__.json.load")
+@patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token")
+async def test_main_set_command_no_args(
+    _mock_keyring,
+    mock_json,
+    _mock_open,
+    _mock_exists,
+    mock_updater_class,
+    _mock_which,
+    mock_exit,
+    capsys,
+):
     """Test the 'set' command with no status message (error case)."""
-    with (
-        patch("sys.argv", ["matrix_premid.py", "set"]),
-        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
-        patch("matrix_premid.__main__.os.path.exists", return_value=True),
-        patch("matrix_premid.__main__.open", new_callable=MagicMock),
-        patch(
-            "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
-        ),
-        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
-        patch("sys.exit", side_effect=SystemExit) as mock_exit,
-    ):
-        mock_updater = MagicMock(spec=MatrixStatusUpdater)
-        mock_updater.close = AsyncMock()
-        mock_updater_class.return_value = mock_updater
+    mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
 
+    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater.close = AsyncMock()
+    mock_updater_class.return_value = mock_updater
+
+    with patch("sys.argv", ["matrix_premid.py", "set"]):
         with pytest.raises(SystemExit):
             await main()
 
-        mock_exit.assert_called_with(1)
-        _, err = capsys.readouterr()
-        assert "ERROR: 'set' command requires a status message." in err
+    mock_exit.assert_called_with(1)
+    _, err = capsys.readouterr()
+    assert "ERROR: 'set' command requires a status message." in err
 
 
 @pytest.mark.asyncio
-async def test_main_unset_flag():
+@patch("matrix_premid.__main__.sys.exit", side_effect=SystemExit)
+@patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/playerctl")
+@patch("matrix_premid.__main__.MatrixStatusUpdater")
+@patch("matrix_premid.__main__.os.path.exists", return_value=True)
+@patch("matrix_premid.__main__.open", new_callable=MagicMock)
+@patch("matrix_premid.__main__.json.load")
+@patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token")
+async def test_main_unset_flag(
+    _mock_keyring,
+    mock_json,
+    _mock_open,
+    _mock_exists,
+    mock_updater_class,
+    _mock_which,
+    _mock_exit,
+):
     """Test the manual --unset flag in main."""
-    with (
-        patch("sys.argv", ["matrix_premid.py", "--unset"]),
-        patch("matrix_premid.__main__.MatrixStatusUpdater") as mock_updater_class,
-        patch("matrix_premid.__main__.os.path.exists", return_value=True),
-        patch("matrix_premid.__main__.open", new_callable=MagicMock),
-        patch(
-            "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
-        ),
-        patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
-    ):
-        mock_updater = MagicMock(spec=MatrixStatusUpdater)
-        mock_updater.update = AsyncMock()
-        mock_updater.close = AsyncMock()
-        mock_updater_class.return_value = mock_updater
+    mock_json.return_value = {"accounts": [{"homeserver": "mock", "username": "@user"}]}
 
+    mock_updater = MagicMock(spec=MatrixStatusUpdater)
+    mock_updater.update = AsyncMock()
+    mock_updater.close = AsyncMock()
+    mock_updater_class.return_value = mock_updater
+
+    with patch("sys.argv", ["matrix_premid.py", "--unset"]):
         await main()
 
-        mock_updater.update.assert_awaited_with("", force=True, is_exit=True)
-        mock_updater.close.assert_awaited()
+    mock_updater.update.assert_awaited_with("", force=True, is_exit=True)
+    mock_updater.close.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -410,6 +430,8 @@ async def test_updater_update_resets_idle_strikes(matrix_updater_obj):
     matrix_updater_obj.idle_strikes = 5
     with patch.object(matrix_updater_obj, "send_update", AsyncMock()):
         await matrix_updater_obj.update("Listening to: Song")
+        if matrix_updater_obj._update_task:
+            await matrix_updater_obj._update_task
         assert matrix_updater_obj.idle_strikes == 0
 
 
@@ -479,11 +501,10 @@ async def test_monitor_mpris_error_handling(mock_exec, capsys):
     """Test that monitor_mpris handles subprocess errors gracefully."""
     mock_exec.side_effect = OSError("Subprocess Error")
 
-    # We need to break the infinite loop
     async def dummy_sleep_cancel(*_args, **_kwargs):
         raise asyncio.CancelledError()
 
-    with patch("asyncio.sleep", side_effect=dummy_sleep_cancel):
+    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=dummy_sleep_cancel):
         try:
             await monitor_mpris([], 1)
         except (asyncio.CancelledError, Exception):
@@ -496,12 +517,10 @@ async def test_monitor_mpris_error_handling(mock_exec, capsys):
 @patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/matrix-premid")
 @patch("matrix_premid.__main__.os.makedirs")
 @patch("matrix_premid.__main__.open", new_callable=MagicMock)
-@patch("matrix_premid.__main__.subprocess")
-def test_install_service_flow(
-    _mock_subprocess, _mock_open, _mock_makedirs, _mock_which
-):
+@patch("matrix_premid.__main__.subprocess.run")
+def test_install_service_flow(mock_run, _mock_open, _mock_makedirs, _mock_which):
     """Test the installation flow for systemd service."""
     install_service()
     assert _mock_makedirs.called
     assert _mock_open.called
-    assert _mock_subprocess.run.called
+    assert mock_run.called
