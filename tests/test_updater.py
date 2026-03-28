@@ -21,10 +21,11 @@ from matrix_premid.__main__ import (
 @pytest.fixture(autouse=True)
 def patch_sleep():
     """Bypass asyncio.sleep delays globally for fast test execution."""
-    # We use a regular Mock that returns a pre-awaited future to avoid AsyncMock leaks
-    f = asyncio.Future()
-    f.set_result(None)
-    with patch("asyncio.sleep", return_value=f):
+
+    async def dummy_sleep(*_args, **_kwargs):
+        pass
+
+    with patch("asyncio.sleep", side_effect=dummy_sleep):
         yield
 
 
@@ -43,6 +44,7 @@ async def matrix_updater_obj():
                 pass
         await u.close()
 
+
 def test_updater_init():
     """Test the updater initializes correctly."""
     u = MatrixStatusUpdater("http://mock", "@test:mock", "tok", "dev")
@@ -60,7 +62,9 @@ async def test_updater_update(matrix_updater_obj):
     mock_resp.text = AsyncMock(return_value="OK")
 
     mock_session = MagicMock()
+    # Mocking async context manager
     mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
 
     with patch.object(
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
@@ -85,6 +89,7 @@ async def test_updater_update_paused(matrix_updater_obj):
 
     mock_session = MagicMock()
     mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
 
     with patch.object(
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
@@ -109,6 +114,7 @@ async def test_updater_update_other(matrix_updater_obj):
 
     mock_session = MagicMock()
     mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
 
     with patch.object(
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
@@ -154,6 +160,7 @@ async def test_monitor_mpris_picks_best_activity(mock_exec, matrix_updater_obj):
                 f"Awesome Artist{SEP_STR}firefox\n".encode("utf-8"),
                 b"",
             ),
+            # Break the loop
             Exception("Break loop"),
         ]
     )
@@ -210,13 +217,17 @@ async def test_main_execution_mocked_gather(
         coro.close()
         return MagicMock(spec=asyncio.Task)
 
+    loop = asyncio.get_running_loop()
+    f = loop.create_future()
+    f.set_result(None)
+
     with (
-        patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock()),
+        patch("matrix_premid.__main__.asyncio.Event.wait", return_value=f),
         patch(
             "matrix_premid.__main__.asyncio.create_task",
             side_effect=mock_create_task_side_effect,
         ),
-        patch("matrix_premid.__main__.asyncio.gather", AsyncMock()),
+        patch("matrix_premid.__main__.asyncio.gather", return_value=f),
     ):
         with patch(
             "matrix_premid.__main__.MatrixStatusUpdater.update",
@@ -259,7 +270,7 @@ async def test_main_debug_flag():
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
@@ -274,14 +285,18 @@ async def test_main_debug_flag():
             coro.close()
             return MagicMock(spec=asyncio.Task)
 
+        loop = asyncio.get_running_loop()
+        f = loop.create_future()
+        f.set_result(None)
+
         # Mocking wait/create_task/gather to exit immediately
         with (
-            patch("matrix_premid.__main__.asyncio.Event.wait", AsyncMock()),
+            patch("matrix_premid.__main__.asyncio.Event.wait", return_value=f),
             patch(
                 "matrix_premid.__main__.asyncio.create_task",
                 side_effect=mock_create_task_side_effect,
             ),
-            patch("matrix_premid.__main__.asyncio.gather", AsyncMock()),
+            patch("matrix_premid.__main__.asyncio.gather", return_value=f),
         ):
             await main()
 
@@ -298,7 +313,7 @@ async def test_main_set_command():
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
@@ -323,16 +338,17 @@ async def test_main_set_command_no_args(capsys):
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
-        patch("sys.exit") as mock_exit,
+        patch("sys.exit", side_effect=SystemExit) as mock_exit,
     ):
-        mock_updater = MagicMock(spec=MatrixStatusUpdater)
+        mock_updater = MagicMock()
         mock_updater.close = AsyncMock()
         mock_updater_class.return_value = mock_updater
 
-        await main()
+        with pytest.raises(SystemExit):
+            await main()
 
         mock_exit.assert_called_with(1)
         _, err = capsys.readouterr()
@@ -349,7 +365,7 @@ async def test_main_unset_flag():
         patch("matrix_premid.__main__.open", new_callable=MagicMock),
         patch(
             "matrix_premid.__main__.json.load",
-            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]}
+            return_value={"accounts": [{"homeserver": "mock", "username": "@user"}]},
         ),
         patch("matrix_premid.__main__.keyring.get_password", return_value="mock_token"),
     ):
@@ -369,7 +385,9 @@ async def test_updater_update_lower_quality_ignored(matrix_updater_obj):
     """Test that lower quality metadata is ignored for the same song."""
     matrix_updater_obj.last_title = "Song"
     matrix_updater_obj.last_quality = 20  # High quality
-    await matrix_updater_obj.update("Listening to: Song", title="Song")  # Low quality (10)
+    await matrix_updater_obj.update(
+        "Listening to: Song", title="Song"
+    )  # Low quality (10)
     assert matrix_updater_obj._update_task is None
 
 
@@ -413,6 +431,7 @@ async def test_send_update_failure_logs_error(matrix_updater_obj, capsys):
 
     mock_session = MagicMock()
     mock_session.put.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.put.return_value.__aexit__ = AsyncMock(return_value=None)
 
     with patch.object(
         matrix_updater_obj, "_get_session", AsyncMock(return_value=mock_session)
@@ -448,19 +467,17 @@ async def test_monitor_mpris_error_handling(mock_exec, capsys):
     mock_exec.side_effect = OSError("Subprocess Error")
 
     # We need to break the infinite loop
-    f1 = asyncio.Future()
-    f1.set_result(None)
-    f2 = asyncio.Future()
-    f2.set_exception(asyncio.CancelledError())
+    async def dummy_sleep_cancel(*_args, **_kwargs):
+        raise asyncio.CancelledError()
 
-    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=[f1, f2]):
+    with patch("matrix_premid.__main__.asyncio.sleep", side_effect=dummy_sleep_cancel):
         try:
             await monitor_mpris([], 1)
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, Exception):
             pass
 
-    _, err = capsys.readouterr()
-    assert "MPRIS Monitor Error: Subprocess Error" in err
+        _, err = capsys.readouterr()
+        assert "MPRIS Monitor Error: Subprocess Error" in err
 
 
 @patch("matrix_premid.__main__.shutil.which", return_value="/usr/bin/matrix-premid")
