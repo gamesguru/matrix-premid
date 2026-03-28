@@ -43,11 +43,6 @@ pythonpath = ["src"]
 addopts = "--cov=matrix_premid --cov-report=term-missing tests/"
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
-filterwarnings = [
-    "ignore::DeprecationWarning:pytest_asyncio.*",
-    "ignore::DeprecationWarning:asyncio.*",
-    "default::RuntimeWarning"
-]
 
 [tool.coverage.run]
 source = ["matrix_premid"]
