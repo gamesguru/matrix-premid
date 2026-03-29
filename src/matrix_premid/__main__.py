@@ -19,12 +19,14 @@ import shutil
 import signal
 import subprocess
 import sys
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, Optional
 
 import aiohttp
 import argcomplete
 import keyring
+
+# pylint: disable=too-many-lines
 
 try:
     from matrix_premid._version import __version__
@@ -34,11 +36,14 @@ except ImportError:  # pragma: no cover
 
 @dataclass
 class ProviderMetadata:
+    """Data class storing parsed regex patterns and priorities for media players."""
+
     name: str
     raw_regex: str
     priority: int
     is_video: bool
     enabled: bool
+    template: str = ""
     pattern: Optional[re.Pattern] = None
 
     def __post_init__(self):
@@ -47,23 +52,34 @@ class ProviderMetadata:
                 self.pattern = re.compile(self.raw_regex, re.IGNORECASE)
             except re.error as e:
                 print(
-                    f"ERROR: Invalid regex '{self.raw_regex}' for provider '{self.name}': {e}",
+                    f"ERROR: Invalid regex '{self.raw_regex}' "
+                    f"for provider '{self.name}': {e}",
                     file=sys.stderr,
                 )
                 self.enabled = False
 
 
 class ProviderConfig:
+    """Manager class that handles parsing and mapping media applications."""
+
     def __init__(self):
         self.providers: Dict[str, ProviderMetadata] = {}
 
     def load(self, custom_providers: dict):
+        """Load default schemas and overwrite with user config."""
         defaults = {
             "YouTube Music": {
                 "regex": "(music\\.youtube\\.com|yt music|youtube music)",
                 "priority": 100,
                 "is_video": False,
                 "enabled": True,
+            },
+            "Methstreams": {
+                "regex": "(methstreams)",
+                "priority": 95,
+                "is_video": True,
+                "enabled": True,
+                "template": "Watching: {title} | {provider}",
             },
             "YouTube": {
                 "regex": "(youtube)",
@@ -130,9 +146,11 @@ class ProviderConfig:
                 priority=data.get("priority", 50),
                 is_video=data.get("is_video", False),
                 enabled=data.get("enabled", True),
+                template=data.get("template", ""),
             )
 
     def match_provider(self, text: str) -> Optional[ProviderMetadata]:
+        """Find the highest-priority enabled provider matching the text."""
         if not text:
             return None
         matches = []
@@ -446,7 +464,7 @@ def parse_mpris_data(
     data: str, global_provider: str = "", url: str = ""
 ) -> tuple[str, str]:
     """Parse playerctl data into (activity_string, normalized_title)."""
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-branches,too-many-statements,too-many-locals
     # Browsers often double-escape MPRIS metadata, so we unescape aggressively
     data = html.unescape(html.unescape(data))
     data = data.replace("&quot;", '"').replace("&apos;", "'").replace("&#39;", "'")
@@ -521,6 +539,32 @@ def parse_mpris_data(
     elif pos_str:
         timestamp = f" [{pos_str}]"
 
+    if global_provider and global_provider in GLOBAL_PROVIDERS.providers:
+        tpl = GLOBAL_PROVIDERS.providers[global_provider].template
+        if tpl:
+            raw_time_str = ""
+            if pos_str and len_str:
+                raw_time_str = f"{pos_str} / {len_str}"
+            elif pos_str:
+                raw_time_str = pos_str
+
+            activity = (
+                tpl.replace("{prefix}", prefix.replace(":", ""))
+                .replace("{title}", norm_title)
+                .replace("{artist}", clean_artist)
+                .replace("{time}", raw_time_str)
+                .replace("{provider}", global_provider)
+            ).strip()
+
+            # Clean up artifacts if {artist} or {time} were empty
+            if not clean_artist:
+                activity = activity.replace(" -  ", " ")
+            if not raw_time_str:
+                activity = activity.replace(" []", "")
+            activity = activity.replace("  ", " ").strip()
+
+            return activity, norm_title
+
     if timestamp:
         activity += timestamp
 
@@ -532,10 +576,9 @@ def parse_mpris_data(
 
 def _get_line_provider(raw: str) -> str:
     """Detect provider for a single line."""
-    lower_line = raw.lower()
-    for key in sorted(PROVIDERS.keys(), key=len, reverse=True):
-        if key in lower_line:
-            return PROVIDERS[key]
+    match = GLOBAL_PROVIDERS.match_provider(raw)
+    if match:
+        return match.name
     return ""
 
 
@@ -558,6 +601,7 @@ def _apply_provider_inheritance(parsed_lines: list[dict]):
 
 def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     """Parse multiple player lines and extract the best metadata."""
+    # pylint: disable=too-many-branches,too-many-locals,too-many-statements
     best_activity, best_title, best_quality = "", "", 0
 
     # First pass: Parse each line and detect its own provider
@@ -587,11 +631,11 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
 
         quality = 0
         if activity.startswith(("Listening to:", "Watching:")):
-            quality = 20 if f"{title} - " in activity else 10
+            quality = 2000 if f"{title} - " in activity else 1000
         elif activity.startswith("Paused:"):
-            quality = 5
+            quality = 500
         elif activity not in ("", "Idle") and not activity.startswith("Idle"):
-            quality = 10
+            quality = 1000
 
         if item["provider"] and f"| {item['provider']}" in activity:
             provider_meta = GLOBAL_PROVIDERS.providers.get(item["provider"])
@@ -624,13 +668,14 @@ async def monitor_mpris(
                             if updaters and updaters[0].verbose:
                                 print("DEBUG: Reloaded providers config successfully.")
                         last_mtime = current_mtime
-                    except Exception as e:
+                    except Exception as e:  # pylint: disable=broad-exception-caught
                         if updaters and updaters[0].verbose:
                             print(
                                 f"DEBUG: Failed to hot-reload config: {e}",
                                 file=sys.stderr,
                             )
-                        # Avoid repeatedly trying to parse a broken file by updating mtime anyway
+                        # Avoid repeatedly trying to parse a broken file
+                        # by updating mtime anyway
                         last_mtime = current_mtime
             # We poll playerctl instead of --follow to avoid holding a persistent
             # D-Bus connection.
@@ -938,7 +983,7 @@ async def main(args=None):
     print("Listening for MPRIS events...", flush=True)
 
     # Run tasks in background
-    tasks = [asyncio.create_task(monitor_mpris(updaters, poll_interval))]
+    tasks = [asyncio.create_task(monitor_mpris(updaters, poll_interval, config_file))]
     for u in updaters:
         tasks.append(asyncio.create_task(keep_alive(u)))
 

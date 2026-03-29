@@ -8,5 +8,69 @@
     }
   ],
   "idle_timeout": 15,
-  "poll_interval": 5
+  "poll_interval": 5,
+  "providers": {
+    "Methstreams": {
+      "regex": "(methstreams)",
+      "priority": 95,
+      "enabled": true,
+      "is_video": true,
+      "template": "Watching: {title} | {provider}"
+    },
+    "YouTube": {
+      "regex": "(youtube)",
+      "priority": 90,
+      "enabled": true,
+      "is_video": true
+    },
+    "YouTube Music": {
+      "regex": "(music\\.youtube\\.com|yt music|youtube music)",
+      "priority": 100,
+      "enabled": true,
+      "is_video": false,
+      "template": "{prefix} {title} - {artist} [{time}] | {provider}"
+    },
+    "Apple Music": {
+      "regex": "(apple music|music\\.apple\\.com)",
+      "priority": 90,
+      "enabled": true,
+      "is_video": false
+    },
+    "Spotify": {
+      "regex": "(spotify)",
+      "priority": 80,
+      "enabled": true,
+      "is_video": false
+    },
+    "Last.fm": {
+      "regex": "(last\\.fm)",
+      "priority": 70,
+      "enabled": true,
+      "is_video": false
+    },
+    "Netflix": {
+      "regex": "(netflix)",
+      "priority": 80,
+      "enabled": true,
+      "is_video": true
+    },
+    "Plex": {
+      "regex": "(plex)",
+      "priority": 80,
+      "enabled": true,
+      "is_video": true
+    },
+    "Twitch": {
+      "regex": "(twitch)",
+      "priority": 70,
+      "enabled": true,
+      "is_video": true
+    },
+    "SoundCloud": {
+      "regex": "(soundcloud)",
+      "priority": 70,
+      "enabled": true,
+      "is_video": false
+    }
+  }
 }
