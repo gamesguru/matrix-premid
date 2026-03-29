@@ -78,6 +78,7 @@ class MatrixStatusUpdater:
         username,
         access_token,
         device_id=None,
+        enabled=True,
         idle_timeout=15,
         poll_interval=5,
         verbose=False,
@@ -88,6 +89,7 @@ class MatrixStatusUpdater:
         self.username = username
         self.access_token = access_token
         self.device_id = device_id
+        self.enabled = enabled
 
         self.idle_timeout = idle_timeout
         self.poll_interval = poll_interval
@@ -160,12 +162,15 @@ class MatrixStatusUpdater:
                 self.idle_strikes = 0
 
             if is_new or is_exit:
-                activity_str = "Offline" if is_exit else activity
-                print(
-                    f"[{self.username}] Matrix Status "
-                    f"[{self.current_presence}] -> {activity_str}",
-                    flush=True,
-                )
+                if not self.enabled:
+                    print(f"[{self.username}] (Disabled)", flush=True)
+                else:
+                    activity_str = "Offline" if is_exit else activity
+                    print(
+                        f"[{self.username}] Matrix Status "
+                        f"[{self.current_presence}] -> {activity_str}",
+                        flush=True,
+                    )
 
             if not is_exit:
                 self.last_activity = activity
@@ -189,6 +194,8 @@ class MatrixStatusUpdater:
 
     async def send_update(self, activity: str, is_exit: bool = False):
         """Send presence and status update to Matrix."""
+        if not self.enabled:
+            return
         try:
             session = await self._get_session()
             headers = {"Authorization": f"Bearer {self.access_token}"}
@@ -468,7 +475,7 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
 
         quality = 0
         if activity.startswith(("Listening to:", "Watching:")):
-            quality = 20 if " - " in activity else 10
+            quality = 20 if f"{title} - " in activity else 10
             if item["provider"] and f"| {item['provider']}" in activity:
                 quality += 1
         elif activity.startswith("Paused:"):
@@ -553,6 +560,7 @@ WantedBy=default.target
         sample_config = {
             "accounts": [
                 {
+                    "enabled": True,
                     "homeserver": "https://matrix.org",
                     "username": "@user:matrix.org",
                     "device_id": "",
@@ -653,7 +661,7 @@ async def main(args=None):
 
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
-        accounts = [a for a in config.get("accounts", []) if a.get("enabled", True)]
+        accounts = config.get("accounts", [])
         idle_timeout = config.get("idle_timeout", 15)
         poll_interval = config.get("poll_interval", 5)
 
@@ -685,6 +693,7 @@ async def main(args=None):
                 account["username"],
                 account["access_token"],
                 device_id=account.get("device_id", ""),
+                enabled=account.get("enabled", True),
                 idle_timeout=idle_timeout,
                 poll_interval=poll_interval,
                 verbose=is_debug,

@@ -1,6 +1,7 @@
 {
   "accounts": [
     {
+      "enabled": true,
       "homeserver": "https://matrix.org",
       "username": "@user:matrix.org",
       "device_id": ""
