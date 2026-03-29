@@ -21,9 +21,12 @@ deps: ##H Install standard and dev dependencies
 
 .PHONY: install
 install: ##H Install locally and setup systemd user service
-	env -u VIRTUAL_ENV /usr/bin/python3 -m pip install --user --break-system-packages .
+	sudo mkdir -p /opt/matrix-premid
+	sudo python3 -m venv /opt/matrix-premid/venv
+	sudo /opt/matrix-premid/venv/bin/pip install .
+	sudo ln -sf /opt/matrix-premid/venv/bin/matrix-premid /usr/local/bin/matrix-premid
 	@echo "Setting up systemd service..."
-	~/.local/bin/matrix-premid install-service
+	/usr/local/bin/matrix-premid install-service
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Unit tests and local running

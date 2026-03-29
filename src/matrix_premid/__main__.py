@@ -319,8 +319,8 @@ def _format_duration(microseconds: str) -> str:
     try:
         if not microseconds or microseconds == "0":
             return ""
-        total_seconds = int(microseconds) // 1_000_000
-        if total_seconds < 0:
+        total_seconds = int(float(microseconds)) // 1_000_000
+        if total_seconds <= 0:
             return ""
         minutes, seconds = divmod(total_seconds, 60)
         hours, minutes = divmod(minutes, 60)
@@ -653,7 +653,7 @@ async def main(args=None):
 
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
-        accounts = config.get("accounts", [])
+        accounts = [a for a in config.get("accounts", []) if a.get("enabled", True)]
         idle_timeout = config.get("idle_timeout", 15)
         poll_interval = config.get("poll_interval", 5)
 
@@ -855,8 +855,10 @@ def daemonize():  # pragma: no cover
     sys.stdout.flush()
     sys.stderr.flush()
     try:
-        with open(os.devnull, "r", encoding="utf-8") as f:
-            os.dup2(f.fileno(), sys.stdin.fileno())
+        nul_r = os.open(os.devnull, os.O_RDWR)
+        os.dup2(nul_r, sys.stdin.fileno())
+        os.dup2(nul_r, sys.stdout.fileno())
+        os.dup2(nul_r, sys.stderr.fileno())
     except Exception:  # pylint: disable=broad-exception-caught
         pass
 
