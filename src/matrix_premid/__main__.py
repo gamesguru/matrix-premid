@@ -629,13 +629,32 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
         if not activity:
             continue
 
+        raw_parts = item["raw"].split(SEP_STR)
+        status = raw_parts[0].strip() if raw_parts else ""
+        raw_artist = raw_parts[2].strip() if len(raw_parts) > 2 else ""
+        raw_pos = raw_parts[5].strip() if len(raw_parts) > 5 else ""
+        raw_len = raw_parts[6].strip() if len(raw_parts) > 6 else ""
+
+        banned_artists = {"plasma-browser-integration", "firefox", "chrome", "chromium"}
+        _, clean_raw_artist = _clean_suffixes("", raw_artist)
+        has_real_artist = bool(
+            clean_raw_artist and clean_raw_artist.lower() not in banned_artists
+        )
+        has_time = bool(raw_pos and raw_len)
+
         quality = 0
-        if activity.startswith(("Listening to:", "Watching:")):
-            quality = 2000 if f"{title} - " in activity else 1000
-        elif activity.startswith("Paused:"):
+        if status == "Paused":
             quality = 500
-        elif activity not in ("", "Idle") and not activity.startswith("Idle"):
+        elif (
+            status == "Playing"
+            and activity not in ("", "Idle")
+            and not activity.startswith("Idle")
+        ):
             quality = 1000
+            if has_real_artist:
+                quality += 1000
+            if has_time:
+                quality += 500
 
         if item["provider"] and f"| {item['provider']}" in activity:
             provider_meta = GLOBAL_PROVIDERS.providers.get(item["provider"])

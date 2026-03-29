@@ -200,3 +200,18 @@ def test_parse_mpris_data_invalid_timestamp():
     )
     activity, _ = parse_mpris_data(raw)
     assert activity == "Listening to: Song - Artist"
+
+
+def test_get_best_mpris_activity_quality_scoring():
+    """Test that time and artist presence correctly calculate quality score."""
+    lines = [
+        f"Paused{SEP_STR}Song{SEP_STR}Artist{SEP_STR}firefox{SEP_STR}",
+        f"Playing{SEP_STR}Song{SEP_STR}Artist{SEP_STR}firefox"
+        f"{SEP_STR}url{SEP_STR}1000000{SEP_STR}5000000",
+        f"Playing{SEP_STR}Song{SEP_STR}{SEP_STR}firefox{SEP_STR}",
+        f"Unknown{SEP_STR}Song{SEP_STR}{SEP_STR}firefox{SEP_STR}",
+    ]
+    activity, title = _get_best_mpris_activity(lines)
+    assert title == "Song"
+    assert "Artist" in activity
+    assert "[0:01 / 0:05]" in activity
