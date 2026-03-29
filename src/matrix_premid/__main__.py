@@ -14,10 +14,13 @@ import html
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 import aiohttp
 import argcomplete
@@ -28,21 +31,122 @@ try:
 except ImportError:  # pragma: no cover
     __version__ = "unknown"
 
-PROVIDERS = {
-    "youtube music": "YouTube Music",
-    "yt music": "YouTube Music",
-    "music.youtube.com": "YouTube Music",
-    "youtube": "YouTube",
-    "spotify": "Spotify",
-    "netflix": "Netflix",
-    "plex": "Plex",
-    "soundcloud": "SoundCloud",
-    "last.fm": "Last.fm",
-    "twitch": "Twitch",
-    "apple music": "Apple Music",
-}
 
-VIDEO_PROVIDERS = {"Netflix", "Plex", "Twitch", "YouTube"}
+@dataclass
+class ProviderMetadata:
+    name: str
+    raw_regex: str
+    priority: int
+    is_video: bool
+    enabled: bool
+    pattern: Optional[re.Pattern] = None
+
+    def __post_init__(self):
+        if self.enabled and self.raw_regex:
+            try:
+                self.pattern = re.compile(self.raw_regex, re.IGNORECASE)
+            except re.error as e:
+                print(
+                    f"ERROR: Invalid regex '{self.raw_regex}' for provider '{self.name}': {e}",
+                    file=sys.stderr,
+                )
+                self.enabled = False
+
+
+class ProviderConfig:
+    def __init__(self):
+        self.providers: Dict[str, ProviderMetadata] = {}
+
+    def load(self, custom_providers: dict):
+        defaults = {
+            "YouTube Music": {
+                "regex": "(music\\.youtube\\.com|yt music|youtube music)",
+                "priority": 100,
+                "is_video": False,
+                "enabled": True,
+            },
+            "YouTube": {
+                "regex": "(youtube)",
+                "priority": 90,
+                "is_video": True,
+                "enabled": True,
+            },
+            "Apple Music": {
+                "regex": "(apple music|music\\.apple\\.com)",
+                "priority": 90,
+                "is_video": False,
+                "enabled": True,
+            },
+            "Spotify": {
+                "regex": "(spotify)",
+                "priority": 80,
+                "is_video": False,
+                "enabled": True,
+            },
+            "Netflix": {
+                "regex": "(netflix)",
+                "priority": 80,
+                "is_video": True,
+                "enabled": True,
+            },
+            "Plex": {
+                "regex": "(plex)",
+                "priority": 80,
+                "is_video": True,
+                "enabled": True,
+            },
+            "SoundCloud": {
+                "regex": "(soundcloud)",
+                "priority": 70,
+                "is_video": False,
+                "enabled": True,
+            },
+            "Twitch": {
+                "regex": "(twitch)",
+                "priority": 70,
+                "is_video": True,
+                "enabled": True,
+            },
+            "Last.fm": {
+                "regex": "(last\\.fm)",
+                "priority": 70,
+                "is_video": False,
+                "enabled": True,
+            },
+        }
+
+        merged = defaults.copy()
+        for name, data in custom_providers.items():
+            if name in merged:
+                merged[name].update(data)
+            else:
+                merged[name] = data
+
+        self.providers = {}
+        for name, data in merged.items():
+            self.providers[name] = ProviderMetadata(
+                name=name,
+                raw_regex=data.get("regex", ""),
+                priority=data.get("priority", 50),
+                is_video=data.get("is_video", False),
+                enabled=data.get("enabled", True),
+            )
+
+    def match_provider(self, text: str) -> Optional[ProviderMetadata]:
+        if not text:
+            return None
+        matches = []
+        for p in self.providers.values():
+            if p.enabled and p.pattern and p.pattern.search(text):
+                matches.append(p)
+        if not matches:
+            return None
+        matches.sort(key=lambda p: (p.priority, len(p.raw_regex)), reverse=True)
+        return matches[0]
+
+
+GLOBAL_PROVIDERS = ProviderConfig()
+GLOBAL_PROVIDERS.load({})
 
 SEP_STR = "_||_"
 
@@ -307,7 +411,7 @@ def _clean_suffixes(title: str, artist: str) -> tuple[str, str]:
     norm_artist = artist.strip()
     # Check longest providers first to prevent substring bugs
     # (e.g. YouTube vs YouTube Music)
-    for provider in sorted(set(PROVIDERS.values()), key=len, reverse=True):
+    for provider in sorted(GLOBAL_PROVIDERS.providers.keys(), key=len, reverse=True):
         for suffix in [
             f" - {provider}",
             f" | {provider}",
@@ -394,7 +498,10 @@ def parse_mpris_data(
     clean_artist = "" if is_banned else norm_artist
 
     if parts[0] == "Playing":
-        prefix = "Watching:" if global_provider in VIDEO_PROVIDERS else "Listening to:"
+        is_video = False
+        if global_provider and global_provider in GLOBAL_PROVIDERS.providers:
+            is_video = GLOBAL_PROVIDERS.providers[global_provider].is_video
+        prefix = "Watching:" if is_video else "Listening to:"
     else:
         prefix = "Paused:"
 
@@ -469,6 +576,11 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
 
     # Third pass: Evaluate quality
     for item in parsed_lines:
+        # User defined disabled providers completely drop here
+        if item["provider"] and item["provider"] in GLOBAL_PROVIDERS.providers:
+            if not GLOBAL_PROVIDERS.providers[item["provider"]].enabled:
+                continue
+
         activity, title = parse_mpris_data(item["raw"], item["provider"], item["url"])
         if not activity:
             continue
@@ -476,12 +588,17 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
         quality = 0
         if activity.startswith(("Listening to:", "Watching:")):
             quality = 20 if f"{title} - " in activity else 10
-            if item["provider"] and f"| {item['provider']}" in activity:
-                quality += 1
         elif activity.startswith("Paused:"):
             quality = 5
         elif activity not in ("", "Idle") and not activity.startswith("Idle"):
             quality = 10
+
+        if item["provider"] and f"| {item['provider']}" in activity:
+            provider_meta = GLOBAL_PROVIDERS.providers.get(item["provider"])
+            if provider_meta:
+                quality += provider_meta.priority
+            else:
+                quality += 1
 
         if quality > best_quality:
             best_activity, best_title, best_quality = activity, title, quality
@@ -489,10 +606,32 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
     return best_activity, best_title
 
 
-async def monitor_mpris(updaters: list[MatrixStatusUpdater], poll_interval: int):
+async def monitor_mpris(
+    updaters: list[MatrixStatusUpdater], poll_interval: int, config_file: str
+):
     """Monitor MPRIS events via playerctl by polling all players."""
+    last_mtime = 0.0
+
     while True:
         try:
+            if os.path.exists(config_file):
+                current_mtime = os.stat(config_file).st_mtime
+                if current_mtime > last_mtime:
+                    try:
+                        with open(config_file, "r", encoding="utf-8") as f:
+                            hot_config = json.load(f)
+                            GLOBAL_PROVIDERS.load(hot_config.get("providers", {}))
+                            if updaters and updaters[0].verbose:
+                                print("DEBUG: Reloaded providers config successfully.")
+                        last_mtime = current_mtime
+                    except Exception as e:
+                        if updaters and updaters[0].verbose:
+                            print(
+                                f"DEBUG: Failed to hot-reload config: {e}",
+                                file=sys.stderr,
+                            )
+                        # Avoid repeatedly trying to parse a broken file by updating mtime anyway
+                        last_mtime = current_mtime
             # We poll playerctl instead of --follow to avoid holding a persistent
             # D-Bus connection.
             process = await asyncio.create_subprocess_exec(
@@ -661,6 +800,7 @@ async def main(args=None):
 
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
+        GLOBAL_PROVIDERS.load(config.get("providers", {}))
         accounts = config.get("accounts", [])
         idle_timeout = config.get("idle_timeout", 15)
         poll_interval = config.get("poll_interval", 5)
