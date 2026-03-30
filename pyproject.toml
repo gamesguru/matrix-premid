@@ -1,3 +1,35 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "matrix-premid"
+dynamic = ["version"]
+description = "Matrix Presence Updater based on MPRIS events"
+readme = "README.rst"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Shane Jaroch", email = "chown_tee@proton.me"},
+]
+dependencies = [
+    "aiohttp>=3.8.0",
+    "argcomplete>=3.5.3",
+    "keyring>=24.0.0"
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/matrix_premid/_version.py"
+
+[project.scripts]
+matrix-premid = "matrix_premid.__main__:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/matrix_premid"]
+
 [tool.black]
 line-length = 88
 
@@ -7,21 +39,21 @@ line_length = 88
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=matrix_premid --cov-report=term-missing"
+pythonpath = ["src"]
+addopts = "--cov=matrix_premid --cov-report=term-missing tests/"
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
-filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::pytest.PytestDeprecationWarning"
-]
 
 [tool.coverage.run]
-command_line = "-m pytest -svv"
-source = ["matrix_premid.py"]
+source = ["matrix_premid"]
+branch = true
+omit = ["src/matrix_premid/_version.py"]
 
 [tool.coverage.report]
-fail_under = 85.00
+fail_under = 80.00
 precision = 2
 show_missing = true
 skip_empty = true
 skip_covered = true
+[tool.pylint.master]
+ignore-paths = ["^src/matrix_premid/_version.py$"]

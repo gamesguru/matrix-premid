@@ -1,0 +1,9 @@
+[global]
+server_name = "localhost"
+allow_registration = true
+yes_i_am_very_sure_i_want_an_open_server = true
+force_disable_first_run_mode = true
+database_path = "/tmp/conduwuit"
+database_backend = "sqlite"
+address = "0.0.0.0"
+port = 8008

@@ -11,60 +11,50 @@ PYTHON=$(VENV)/bin/python
 PIP=$(VENV)/bin/pip
 
 .PHONY: init
-init:
+init: ##H Initialize .venv virtual dev env
 	python3 -m venv $(VENV)
 	-direnv allow
 
 .PHONY: deps
-deps:	##H Install standard and dev dependencies
+deps: ##H Install standard and dev dependencies
 	$(VENV)/bin/pip install -r requirements.txt -r requirements-dev.txt
 
-# Default install location
-INSTALL_DIR ?= /opt/matrix-premid
-
 .PHONY: install
-install: ##H Install dependencies, env, binary, and systemd service to /opt (requires sudo)
-	@echo "Installing globally to $(INSTALL_DIR)..."
-	sudo mkdir -p $(INSTALL_DIR)
-	sudo cp matrix_premid.py requirements.txt $(INSTALL_DIR)/
-	if [ -f .env ]; then \
-		sudo cp .env $(INSTALL_DIR)/.env; \
-		sudo chown $$(id -un):$$(id -gn) $(INSTALL_DIR)/.env; \
-		sudo chmod 600 $(INSTALL_DIR)/.env; \
-	fi
-	sudo python3 -m venv $(INSTALL_DIR)/.venv
-	sudo $(INSTALL_DIR)/.venv/bin/pip install -r $(INSTALL_DIR)/requirements.txt
-	sudo ln -sf $(INSTALL_DIR)/matrix_premid.py /usr/local/bin/matrix_premid
-	sudo chmod +x $(INSTALL_DIR)/matrix_premid.py
-	sudo cp etc/matrix-premid.service /etc/systemd/system/matrix-premid.service
-	sudo systemctl daemon-reload
-	sudo systemctl enable matrix-premid.service
-	@echo "Installed to $(INSTALL_DIR) and service created."
-
+install: ##H Install locally and setup systemd user service
+	sudo mkdir -p /opt/matrix-premid
+	sudo python3 -m venv /opt/matrix-premid/venv
+	sudo /opt/matrix-premid/venv/bin/pip install .
+	sudo ln -sf /opt/matrix-premid/venv/bin/matrix-premid /usr/local/bin/matrix-premid
+	@echo "Setting up systemd service..."
+	/usr/local/bin/matrix-premid install-service
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Unit tests and local running
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .PHONY: test
-test: deps ##H Run unit tests with coverage
-	PYTHONPATH=. $(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
+test:   ##H Run unit tests with coverage
+	PYTHONPATH=src $(VENV)/bin/python -m pytest --cov=matrix_premid --cov-report=term-missing tests/
 
 .PHONY: run
-run: deps ##H Run the application locally
-	$(PYTHON) matrix_premid.py
+run:    ##H Run the application locally
+	PYTHONPATH=src $(PYTHON) -m matrix_premid --debug
+
+.PHONY: start
+start: ##H Start the background systemd service
+	systemctl --user start matrix-premid.service
 
 .PHONY: restart
 restart: ##H Restart the background systemd service
-	sudo systemctl restart matrix-premid.service
+	systemctl --user restart matrix-premid.service
 
 .PHONY: log
 log:	##H Watch journalctl logs of installed/running service
-	sudo journalctl -fu matrix-premid
+	journalctl --user -fu matrix-premid
 
 .PHONY: stop
 stop: ##H Stop the background systemd service
-	sudo systemctl stop matrix-premid.service
+	systemctl --user stop matrix-premid.service
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -72,21 +62,32 @@ stop: ##H Stop the background systemd service
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-LINT_LOCS_PY = $$(git ls-files '*.py')
+LINT_LOCS_PY = $$(git ls-files 'src/**/*.py' 'tests/*.py')
 
 .PHONY: format
 format: ##H Format the code using Black
-	$(VENV)/bin/black $(LINT_LOCS_PY)
-	$(VENV)/bin/isort $(LINT_LOCS_PY)
+	$(VENV)/bin/black src/ tests/
+	$(VENV)/bin/isort src/ tests/
 	-prettier -w .
 	-pre-commit run --all-files
 
 
 .PHONY: lint
 lint: ##H Lint the code using Flake8
-	flake8 $(LINT_LOCS_PY)
-	pylint $(LINT_LOCS_PY)
-	ruff check $(LINT_LOCS_PY)
+	flake8 src/
+	flake8 --max-line-length=100 tests/
+	pylint src/ tests/
+	ruff check src/ tests/
+
+.PHONY: build
+build: ##H Build the package (requires hatch)
+	$(VENV)/bin/pip install hatch
+	$(VENV)/bin/hatch build
+
+.PHONY: publish
+publish: build ##H Upload the package to PyPI using twine
+	$(VENV)/bin/pip install twine
+	$(VENV)/bin/twine upload dist/*
 
 .PHONY: clean
 clean: ##H Clean the virtual environment and caches
@@ -97,5 +98,5 @@ clean: ##H Clean the virtual environment and caches
 
 .PHONY: _help
 _help: ##H Show this help, list available targets
-	@grep -hE '^[a-zA-Z0-9_\/-]+:.*?##H .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?##H "}; {printf "$(STYLE_CYAN)%-15s$(STYLE_RESET) %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z0-9_\/-]+:[[:space:]]*##H .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":[[:space:]]*##H "}; {printf "$(STYLE_CYAN)%-15s$(STYLE_RESET) %s\n", $$1, $$2}'

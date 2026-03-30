@@ -1,3 +1,8 @@
 [flake8]
 max-line-length = 88
-extend-ignore = E203
+exclude = .venv, .git, __pycache__, build, dist
+
+[flake8:local-plugins]
+# Flake8 doesn't support per-directory line length natively in the config file
+# without plugins, but we can use the --max-line-length flag in the Makefile
+# or just keep this here for general use.

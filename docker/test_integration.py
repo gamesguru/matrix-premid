@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -11,12 +12,58 @@ import urllib.request
 
 SEP_STR = "_||_"
 
-# pylint: disable=missing-docstring, too-many-locals
+# pylint: disable=missing-docstring, too-many-locals, too-many-branches
 # pylint: disable=too-many-statements, consider-using-with
 
 
 def test_integration():
     print("[i] Starting Matrix PreMiD Integration Test...")
+
+    print("[*] Fetching dynamically generated Conduwuit registration token...")
+    reg_token = None
+
+    print("[~] Polling Docker logs until Conduwuit flushes the Welcome message...")
+    for _ in range(15):
+        try:
+            logs = subprocess.check_output(
+                ["docker", "logs", "conduwuit"],
+                text=True,
+                stderr=subprocess.STDOUT,
+            )
+            found = False
+            for line in logs.splitlines():
+                if "using the registration token" in line:
+                    # Extract the registration token using a regex instead of
+                    # stripping to alphanumerics so we preserve valid chars
+                    match = re.search(r"using the registration token\s+([^\s]+)", line)
+                    if match:
+                        raw_token = match.group(1)
+                        # Strip ANSI trace-subscriber terminal color codes properly
+                        clean_token = re.sub(r"\x1b\[[0-9;]*m", "", raw_token)
+                        # Trim surrounding whitespace/punctuation, keep internal chars
+                        reg_token = clean_token.strip(" \t\r\n\"'`.,;:()[]{}")
+                        found = True
+                        break
+            if found:
+                break
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            print(f"[!] Docker logs poll failed: {e}")
+        time.sleep(1)
+
+    if not reg_token:
+        print("[!] Failed to discover registration token. Last docker logs:")
+        try:
+            print(
+                subprocess.check_output(
+                    ["docker", "logs", "--tail", "20", "conduwuit"], text=True
+                )
+            )
+        # pylint: disable=broad-exception-caught
+        except Exception:
+            pass
+        sys.exit(1)
+
+    print("[✓] Discovered registration token from Conduwuit logs")
 
     print("[*] Registering dummy user via matrix client API (UIA Handshake)...")
     req = urllib.request.Request(
@@ -51,7 +98,7 @@ def test_integration():
                 "password": "ci_password",
                 "auth": {
                     "type": "m.login.registration_token",
-                    "token": "ci_test_token_123",
+                    "token": reg_token,
                     "session": session,
                 },
             }
@@ -82,20 +129,17 @@ def test_integration():
         )
     os.chmod(mock_script, 0o755)
 
-    # 3. Write .env inside repo root
-    # Note: tests are run from the project root in CI
-    print("[*] Writing local configuration .env file...")
-    with open(".env", "w", encoding="utf-8") as f:
-        f.write("HOMESERVER=http://localhost:8008\n")
-        f.write(f"USERNAME={user_id}\n")
-        f.write(f"ACCESS_TOKEN={token}\n")
-        f.write(f"DEVICE_ID={device_id}\n")
-
     # 4. Start matrix_premid.py
     print("[i] Starting matrix_premid.py background daemon...")
     env = os.environ.copy()
     # Prepend mock_dir so subprocess picks up our fake playerctl instead of real one
     env["PATH"] = f"{mock_dir}:{env['PATH']}"
+    env["PREMID_LOCK_FILE"] = os.path.join(mock_dir, "test.lock")
+    env["HOMESERVER"] = "http://localhost:8008"
+    env["USERNAME"] = user_id
+    env["ACCESS_TOKEN"] = token
+    env["DEVICE_ID"] = device_id
+
     proc = subprocess.Popen([sys.executable, "matrix_premid.py"], env=env)
 
     # 5. Wait for loop to pick up playerctl, parse, and send to homeserver
