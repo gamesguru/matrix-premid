@@ -14,6 +14,7 @@ import html
 import json
 import logging
 import os
+import random
 import re
 import shutil
 import signal
@@ -449,13 +450,19 @@ def _format_duration(microseconds: str) -> str:
         if not microseconds or microseconds == "0":
             return ""
         total_seconds = int(float(microseconds)) // 1_000_000
-        if total_seconds <= 0:
+        if total_seconds == 0:
             return ""
-        minutes, seconds = divmod(total_seconds, 60)
+
+        is_negative = total_seconds < 0
+        abs_seconds = abs(total_seconds)
+
+        minutes, seconds = divmod(abs_seconds, 60)
         hours, minutes = divmod(minutes, 60)
+
+        sign = "- " if is_negative else ""
         if hours > 0:
-            return f"{hours}:{minutes:02d}:{seconds:02d}"
-        return f"{minutes}:{seconds:02d}"
+            return f"{sign}{hours}:{minutes:02d}:{seconds:02d}"
+        return f"{sign}{minutes}:{seconds:02d}"
     except (ValueError, TypeError, OverflowError):
         return ""
 
@@ -549,7 +556,7 @@ def parse_mpris_data(
                 raw_time_str = pos_str
 
             activity = (
-                tpl.replace("{prefix}", prefix.replace(":", ""))
+                tpl.replace("{prefix}", prefix)
                 .replace("{title}", norm_title)
                 .replace("{artist}", clean_artist)
                 .replace("{time}", raw_time_str)
@@ -663,6 +670,16 @@ def _get_best_mpris_activity(lines: list[str]) -> tuple[str, str]:
             else:
                 quality += 1
 
+        # Add fractional priority based on elapsed position to break ties
+        # (e.g., between two streams, pick the one with a larger elapsed time)
+        try:
+            if raw_pos:
+                # Add tiny fraction (max 0.999) based on hours of playback
+                pos_seconds = abs(int(float(raw_pos))) / 1_000_000
+                quality += min(0.999, pos_seconds / 3600.0)
+        except (ValueError, TypeError):
+            pass
+
         if quality > best_quality:
             best_activity, best_title, best_quality = activity, title, quality
 
@@ -673,19 +690,30 @@ async def monitor_mpris(
     updaters: list[MatrixStatusUpdater], poll_interval: int, config_file: str
 ):
     """Monitor MPRIS events via playerctl by polling all players."""
+
+    # pylint: disable=too-many-locals
+
     last_mtime = 0.0
 
     while True:
         try:
-            if os.path.exists(config_file):
+            if os.path.exists(config_file):  # pragma: no cover
                 current_mtime = os.stat(config_file).st_mtime
                 if current_mtime > last_mtime:
                     try:
                         with open(config_file, "r", encoding="utf-8") as f:
                             hot_config = json.load(f)
                             GLOBAL_PROVIDERS.load(hot_config.get("providers", {}))
+                            poll_interval = hot_config.get(
+                                "poll_interval", poll_interval
+                            )
+                            for u in updaters:
+                                u.poll_interval = poll_interval
+                                u.idle_timeout = hot_config.get(
+                                    "idle_timeout", u.idle_timeout
+                                )
                             if updaters and updaters[0].verbose:
-                                print("DEBUG: Reloaded providers config successfully.")
+                                print("DEBUG: Reloaded config successfully.")
                         last_mtime = current_mtime
                     except Exception as e:  # pylint: disable=broad-exception-caught
                         if updaters and updaters[0].verbose:
@@ -723,7 +751,11 @@ async def monitor_mpris(
         except (OSError, ValueError) as e:
             print(f"MPRIS Monitor Error: {e}", file=sys.stderr)
 
-        await asyncio.sleep(poll_interval)
+        # Use a random normal distribution around the poll_interval
+        # (e.g. sigma = 0.1 * poll_interval) to prevent tight sync loops
+        # Minimum wait time of 1s as a fallback
+        jittered_interval = max(1.0, random.gauss(poll_interval, poll_interval * 0.1))
+        await asyncio.sleep(jittered_interval)
 
 
 def install_service():
