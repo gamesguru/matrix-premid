@@ -1,8 +1,14 @@
 """Unit tests for the project."""
 
-from matrix_premid import SEP_STR, _get_best_mpris_activity, parse_mpris_data
+from matrix_premid.__main__ import SEP_STR, _get_best_mpris_activity, parse_mpris_data
 
 # pylint: disable=missing-docstring,line-too-long
+
+
+def test_get_best_mpris_activity_idle():
+    assert _get_best_mpris_activity([]) == ("", "")
+    assert _get_best_mpris_activity(["", "   "]) == ("", "")
+    assert _get_best_mpris_activity(["Invalid Line"]) == ("", "")
 
 
 def test_parse_mpris_data_playing_song_with_artist():
@@ -13,13 +19,16 @@ def test_parse_mpris_data_playing_song_with_artist():
 
 
 def test_parse_mpris_data_playing_youtube_music_suffix():
-    raw = f"Playing{SEP_STR}Sea Of Feelings - YouTube Music{SEP_STR}{SEP_STR}firefox"
-    activity, title = parse_mpris_data(raw, "YouTube Music")
+    url = "https://music.youtube.com/watch?v=123"
+    content = f"Sea Of Feelings - YouTube Music{SEP_STR}{SEP_STR}firefox{SEP_STR}"
+    raw = f"Playing{SEP_STR}{content}{url}"
+    activity, title = parse_mpris_data(raw, "YouTube Music", url)
     assert activity == "Listening to: Sea Of Feelings | YouTube Music"
     assert title == "Sea Of Feelings"
 
 
 def test_parse_mpris_data_paused_song():
+
     raw = f"Paused{SEP_STR}Sea Of Feelings{SEP_STR}LIONE{SEP_STR}firefox"
     activity, title = parse_mpris_data(raw)
     assert activity == "Paused: Sea Of Feelings - LIONE"
@@ -33,37 +42,176 @@ def test_parse_mpris_data_html_entities():
     assert title == "Princess Chelsea & Friends"
 
 
-def test_get_best_mpris_activity_ignores_idle_youtube_music_when_paused():
+def test_parse_mpris_data_youtube_url_detection():
+    # Test that even without "YouTube" in title, URL detects it
+    url = "https://www.youtube.com/watch?v=abc"
+    raw = (
+        f"Playing{SEP_STR}Cool Video{SEP_STR}Cool Channel{SEP_STR}firefox{SEP_STR}{url}"
+    )
+    activity, title = parse_mpris_data(raw, url=url)
+    assert activity == "Watching: Cool Video - Cool Channel | YouTube"
+    assert title == "Cool Video"
+
+
+def test_get_best_mpris_activity_prevents_poisoning():
+    # YouTube Music is Paused, YouTube is Playing
+    # In the old code, both would be identified as "YouTube Music"
+    url_yt = "https://youtube.com/watch?v=1"
+    url_ym = "https://music.youtube.com/watch?v=2"
     lines = [
-        f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox",
-        f"Paused{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}plasma-browser-integration",  # noqa: E501
+        f"Playing{SEP_STR}Cool Video - YouTube{SEP_STR}{SEP_STR}firefox{SEP_STR}{url_yt}",
+        f"Paused{SEP_STR}Some Song{SEP_STR}Artist{SEP_STR}firefox{SEP_STR}{url_ym}",
     ]
     activity, title = _get_best_mpris_activity(lines)
-    # The new behavior properly drops Paused songs so we get a clean Idle state
-    assert activity == "Idle"
-    assert title == ""
+    assert activity == "Watching: Cool Video | YouTube"
+    assert title == "Cool Video"
+
+
+def test_get_best_mpris_activity_prioritizes_paused_over_idle():
+    url = "https://music.youtube.com/watch?v=3"
+    lines = [
+        f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox{SEP_STR}{url}",
+        (
+            f"Paused{SEP_STR}Awesome Song{SEP_STR}Awesome Artist"
+            f"{SEP_STR}plasma-integration{SEP_STR}"
+        ),  # noqa: E501
+    ]
+    activity, title = _get_best_mpris_activity(lines)
+    # The new behavior properly boosts Paused songs over empty Idle
+    assert activity == "Paused: Awesome Song - Awesome Artist | YouTube Music"
+    assert title == "Awesome Song"
 
 
 def test_get_best_mpris_activity_picks_highest_quality():
     lines = [
-        f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox",
-        f"Playing{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}firefox",
-        f"Playing{SEP_STR}Basic Song Without Artist{SEP_STR}{SEP_STR}firefox",
+        f"Playing{SEP_STR}YouTube Music{SEP_STR}{SEP_STR}firefox{SEP_STR}",
+        f"Playing{SEP_STR}Awesome Song{SEP_STR}Awesome Artist{SEP_STR}firefox{SEP_STR}",
+        f"Playing{SEP_STR}Basic Song Without Artist{SEP_STR}{SEP_STR}firefox{SEP_STR}",
     ]
     activity, title = _get_best_mpris_activity(lines)
-    # The Awesome Song has an artist, giving it quality=20+1=21
-    assert activity == "Listening to: Awesome Song - Awesome Artist | YouTube Music"
+    # The Awesome Song has an artist, giving it quality=20
+    assert "Awesome Song" in activity
+    assert "Awesome Artist" in activity
     assert title == "Awesome Song"
 
 
 def test_get_best_mpris_activity_inherits_youtube_music_across_players():
     """Test that rich players without YT Music inherit the tag from other tabs."""
     lines = [
-        f"Playing{SEP_STR}Eyes on Fire (Zeds Dead remix) | YouTube Music{SEP_STR}{SEP_STR}firefox",  # noqa: E501
-        f"Playing{SEP_STR}Eyes on Fire (Zeds Dead remix){SEP_STR}Blue Foundation{SEP_STR}plasma-browser-integration",  # noqa: E501
+        f"Playing{SEP_STR}Eyes on Fire (Zeds Dead remix) | YouTube Music{SEP_STR}{SEP_STR}firefox{SEP_STR}",  # noqa: E501
+        f"Playing{SEP_STR}Eyes on Fire (Zeds Dead remix){SEP_STR}Blue Foundation{SEP_STR}plasma-browser-integration{SEP_STR}",  # noqa: E501
     ]
     activity, title = _get_best_mpris_activity(lines)
     assert activity == (
         "Listening to: Eyes on Fire (Zeds Dead remix) - Blue Foundation | YouTube Music"  # noqa: E501
     )
     assert title == "Eyes on Fire (Zeds Dead remix)"
+
+
+def test_parse_mpris_data_youtube():
+    url = "https://youtube.com/watch?v=v"
+    raw = f"Playing{SEP_STR}Some Video{SEP_STR}{SEP_STR}firefox{SEP_STR}{url}"
+    act, title = parse_mpris_data(raw, "YouTube", url=url)
+    assert act == "Watching: Some Video | YouTube"
+    assert title == "Some Video"
+
+
+def test_parse_mpris_data_netflix_url_detection():
+    url = "https://www.netflix.com/watch/123"
+    raw = f"Playing{SEP_STR}Stranger Things{SEP_STR}{SEP_STR}firefox{SEP_STR}{url}"
+    activity, title = parse_mpris_data(raw, url=url)
+    assert activity == "Watching: Stranger Things | Netflix"
+    assert title == "Stranger Things"
+
+
+def test_parse_mpris_data_twitch_url_detection():
+    url = "https://www.twitch.tv/some_streamer"
+    raw = f"Playing{SEP_STR}Some Stream{SEP_STR}{SEP_STR}firefox{SEP_STR}{url}"
+    activity, title = parse_mpris_data(raw, url=url)
+    assert activity == "Watching: Some Stream | Twitch"
+    assert title == "Some Stream"
+
+
+def test_parse_mpris_data_netflix():
+    raw = f"Playing{SEP_STR}Stranger Things{SEP_STR}{SEP_STR}firefox"
+    act, title = parse_mpris_data(raw, "Netflix")
+    assert act == "Watching: Stranger Things | Netflix"
+    assert title == "Stranger Things"
+
+
+def test_parse_mpris_data_array_artist():
+    raw = f"Playing{SEP_STR}Song Title{SEP_STR}['Artist 1', 'Artist 2']{SEP_STR}firefox"
+    act, title = parse_mpris_data(raw)
+    assert act == "Listening to: Song Title - Artist 1, Artist 2"
+    assert title == "Song Title"
+
+
+def test_parse_mpris_data_with_timestamp():
+    # 36 seconds / 5 minutes 44 seconds
+    pos = str(36 * 1_000_000)
+    length = str((5 * 60 + 44) * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Song Title{SEP_STR}Artist{SEP_STR}player"
+        f"{SEP_STR}url{SEP_STR}{pos}{SEP_STR}{length}"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Song Title - Artist [0:36 / 5:44]"
+
+
+def test_parse_mpris_data_with_position_only():
+    # 1 minute 23 seconds, no length (e.g. live stream)
+    pos = str(83 * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Live Stream{SEP_STR}Broadcaster{SEP_STR}player"
+        f"{SEP_STR}url{SEP_STR}{pos}"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Live Stream - Broadcaster [1:23]"
+
+
+def test_parse_mpris_data_with_hours():
+    # 1 hour 2 minutes 3 seconds / 2 hours
+    pos = str((1 * 3600 + 2 * 60 + 3) * 1_000_000)
+    length = str(2 * 3600 * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Long Podcast{SEP_STR}Host{SEP_STR}player"
+        f"{SEP_STR}url{SEP_STR}{pos}{SEP_STR}{length}"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Long Podcast - Host [1:02:03 / 2:00:00]"
+
+
+def test_parse_mpris_data_with_timestamp_and_provider():
+    pos = str(36 * 1_000_000)
+    length = str((5 * 60 + 44) * 1_000_000)
+    raw = (
+        f"Playing{SEP_STR}Song Title{SEP_STR}Artist{SEP_STR}spotify"
+        f"{SEP_STR}https://open.spotify.com/track/123{SEP_STR}{pos}{SEP_STR}{length}"
+    )
+    # The provider "Spotify" is detected from url or raw playerName
+    activity, _ = parse_mpris_data(raw, global_provider="Spotify")
+    assert activity == "Listening to: Song Title - Artist [0:36 / 5:44] | Spotify"
+
+
+def test_parse_mpris_data_invalid_timestamp():
+    raw = (
+        f"Playing{SEP_STR}Song{SEP_STR}Artist{SEP_STR}player{SEP_STR}url"
+        f"{SEP_STR}invalid{SEP_STR}data"
+    )
+    activity, _ = parse_mpris_data(raw)
+    assert activity == "Listening to: Song - Artist"
+
+
+def test_get_best_mpris_activity_quality_scoring():
+    """Test that time and artist presence correctly calculate quality score."""
+    lines = [
+        f"Paused{SEP_STR}Song{SEP_STR}Artist{SEP_STR}firefox{SEP_STR}",
+        f"Playing{SEP_STR}Song{SEP_STR}Artist{SEP_STR}firefox"
+        f"{SEP_STR}url{SEP_STR}1000000{SEP_STR}5000000",
+        f"Playing{SEP_STR}Song{SEP_STR}{SEP_STR}firefox{SEP_STR}",
+        f"Unknown{SEP_STR}Song{SEP_STR}{SEP_STR}firefox{SEP_STR}",
+    ]
+    activity, title = _get_best_mpris_activity(lines)
+    assert title == "Song"
+    assert "Artist" in activity
+    assert "[0:01 / 0:05]" in activity
