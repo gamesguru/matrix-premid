@@ -140,7 +140,7 @@ def test_integration():
     env["ACCESS_TOKEN"] = token
     env["DEVICE_ID"] = device_id
 
-    proc = subprocess.Popen([sys.executable, "matrix_premid.py"], env=env)
+    proc = subprocess.Popen([sys.executable, "-m", "matrix_premid"], env=env)
 
     # 5. Wait for loop to pick up playerctl, parse, and send to homeserver
     print("[~] Waiting 10 seconds for service to update presence...")

@@ -47,4 +47,4 @@ jobs:
 
       - name: Run CI Integration Tests
         run: |
-          python docker/test_integration.py
+          PYTHONPATH=src python docker/test_integration.py
