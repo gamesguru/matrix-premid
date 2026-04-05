@@ -36,23 +36,48 @@ If you want to run this constantly in the background as a Linux service, indepen
 
    .. code-block:: bash
 
-      make install
+      sudo make install
 
-   This creates the directory ``/opt/matrix-premid``, copies the script and ``.env`` there, sets up an isolated Python virtual environment exclusively for the service, and symlinks the script to ``/usr/local/bin/matrix_premid``. The systemd service is placed in ``/etc/systemd/system/``.
+   This creates the directory ``/opt/matrix-premid``, copies the script and ``.env`` there, sets up an isolated Python virtual environment exclusively for the service, and symlinks the script to ``/usr/local/bin/matrix-premid``. The systemd service is placed in ``/etc/systemd/system/``.
 
-4. (Optional) Edit credentials after installation:
+User Installation
+-----------------
+
+Alternatively, you can install the package to your user site-packages:
+
+.. code-block:: bash
+
+   make install-user
+
+This will install the ``matrix-premid`` command to your ``~/.local/bin``.
+
+Basic Usage
+-----------
+
+1. **Install dependencies**: ``pip install .`` (or use installation methods above).
+2. **Setup environment**: Place your ``.env`` file in the current directory or at ``~/.config/matrix-premid/.env``.
+3. **Run the script**: ``matrix-premid``
+
+Command-line Options
+--------------------
+
+* ``--unset`` or ``--clear``: Manually clear status to AFK (unavailable) and exit.
+* ``--debug``: Enable verbose debug logging.
+* ``--help``: Show all available options.
+
+Shell Completion
+----------------
+
+This script supports bash/zsh completion via ``argcomplete``. To enable it:
+
+1. Install ``argcomplete`` (included in requirements).
+2. Register the script:
 
    .. code-block:: bash
 
-      sudo nano /opt/matrix-premid/.env
-      sudo systemctl restart matrix-premid.service
+      eval "$(register-python-argcomplete matrix-premid)"
 
-5. Start and enable the background service:
-
-   .. code-block:: bash
-
-      sudo systemctl daemon-reload
-      sudo systemctl enable --now matrix-premid.service
+   (Add this to your ``.bashrc`` or ``.zshrc`` for persistence).
 
 Development / Local Running
 ---------------------------
